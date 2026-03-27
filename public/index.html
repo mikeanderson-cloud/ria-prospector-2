@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RIA LinkedIn Prospector</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f3ef;--surface:#fff;--surface2:#f9f8f5;
+  --border:#e2e0d8;--border2:#eeece5;
+  --text:#1a1917;--muted:#6b6860;--hint:#9c9a94;
+  --blue:#1a4f8a;--blue-l:#e8f0fa;--blue-m:#c5d9f0;
+  --green:#1a6b42;--green-l:#e6f4ec;
+  --amber:#7a4d00;--amber-l:#fef3da;
+  --red:#8b1a1a;--red-l:#fdeaea;
+  --li:#0a66c2;--li-l:#e8f1fb;
+  --pill:#eceae3;--pill-t:#4a4840;
+  --rad:10px;--rad-sm:6px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh}
+.hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:50px;position:sticky;top:0;z-index:200}
+.hlogo{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.hdiv{width:1px;height:15px;background:var(--border);margin:0 11px}
+.htitle{font-size:12px;color:var(--muted)}
+.hright{display:flex;align-items:center;gap:10px}
+.hbadge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--green-l);color:var(--green)}
+.hdate{font-size:11px;color:var(--hint)}
+#load-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:18px}
+.ls-title{font-size:18px;font-weight:600}
+.ls-sub{font-size:13px;color:var(--muted)}
+.prog-bar{width:300px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;background:var(--blue);border-radius:2px;transition:width .3s;width:0%}
+.ls-detail{font-size:12px;color:var(--hint);min-height:18px;text-align:center}
+.ls-err{font-size:13px;color:var(--red);text-align:center;max-width:440px;line-height:1.6;padding:0 20px}
+.ls-retry{font-family:inherit;font-size:13px;padding:8px 20px;border-radius:var(--rad-sm);border:1px solid var(--border);background:var(--surface);color:var(--blue);cursor:pointer}
+.layout{display:grid;grid-template-columns:252px 1fr;min-height:calc(100vh - 50px)}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:16px 13px;position:sticky;top:50px;height:calc(100vh - 50px);overflow-y:auto}
+.sb-sec{margin-bottom:20px}
+.sb-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--hint);margin-bottom:9px;display:block}
+.sb-note{font-size:11px;color:var(--hint);margin-top:5px;line-height:1.5}
+.rw{margin-bottom:10px}
+.rh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.rl{font-size:12px;color:var(--muted);font-weight:500}
+.rv{font-size:12px;font-weight:700;color:var(--blue)}
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:var(--blue);cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.tog-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.tog-lbl{font-size:12px;color:var(--muted);font-weight:500}
+.tog{width:34px;height:19px;border-radius:10px;background:var(--border);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
+.tog.on{background:var(--blue)}
+.tog-thumb{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.tog.on .tog-thumb{left:17px}
+.rbtns{display:flex;flex-direction:column;gap:3px}
+.rbtn{font-family:inherit;font-size:12px;padding:5px 9px;border:1px solid var(--border);border-radius:var(--rad-sm);background:var(--surface2);color:var(--muted);cursor:pointer;text-align:left;transition:all .12s}
+.rbtn:hover{background:var(--blue-l);color:var(--blue)}
+.rbtn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.city-search{width:100%;height:28px;padding:0 8px;border:1px solid var(--border);border-radius:var(--rad-sm);font-family:inherit;font-size:12px;outline:none;margin-bottom:7px;background:var(--surface2)}
+.city-search:focus{border-color:var(--blue)}
+.city-list{max-height:175px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--rad-sm)}
+.city-item{display:flex;align-items:center;gap:7px;padding:5px 9px;cursor:pointer;font-size:12px;transition:background .1s}
+.city-item:hover{background:var(--blue-l)}
+.city-item input{cursor:pointer;accent-color:var(--blue)}
+.status-pills{display:flex;flex-wrap:wrap;gap:4px}
+.spill{font-family:inherit;font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;transition:all .12s}
+.spill.on.sp-none{background:var(--pill);color:var(--pill-t);border-color:transparent}
+.spill.on.sp-contacted{background:var(--blue-l);color:var(--blue);border-color:transparent}
+.spill.on.sp-connected{background:var(--green-l);color:var(--green);border-color:transparent}
+.spill.on.sp-followup{background:var(--amber-l);color:var(--amber);border-color:transparent}
+.spill.on.sp-skip{background:var(--red-l);color:var(--red);border-color:transparent}
+.reset-btn{width:100%;font-family:inherit;font-size:12px;padding:7px;border:1px solid var(--border);border-radius:var(--rad-sm);background:var(--surface2);color:var(--muted);cursor:pointer;transition:all .15s;margin-top:2px}
+.reset-btn:hover{border-color:var(--red);color:var(--red)}
+.content{padding:18px 18px 60px;min-width:0}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--rad);overflow:hidden;margin-bottom:16px}
+.stat{background:var(--surface);padding:11px 14px}
+.sv{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.sl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--hint);margin-top:2px}
+.toolbar{display:flex;align-items:center;gap:7px;margin-bottom:13px;flex-wrap:wrap}
+.tsearch{height:30px;padding:0 10px;border:1px solid var(--border);border-radius:var(--rad-sm);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);flex:1;min-width:140px;outline:none}
+.tsearch:focus{border-color:var(--blue)}
+.fbtn{font-family:inherit;font-size:11px;font-weight:500;padding:4px 10px;border-radius:var(--rad-sm);border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;white-space:nowrap;transition:all .12s}
+.fbtn:hover{background:var(--bg)}
+.fbtn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.rcount{font-size:12px;color:var(--hint);margin-left:auto}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rad);margin-bottom:8px;overflow:hidden;transition:box-shadow .15s}
+.card:hover{box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.card.sc-contacted{border-left:3px solid var(--blue)}
+.card.sc-connected{border-left:3px solid var(--green)}
+.card.sc-skip{border-left:3px solid var(--red);opacity:.55}
+.card.sc-followup{border-left:3px solid var(--amber)}
+.ch{display:flex;align-items:center;justify-content:space-between;padding:11px 15px;cursor:pointer;gap:11px;user-select:none}
+.chl{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.av{width:34px;height:34px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--blue-l);color:var(--blue)}
+.fname{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fsub{font-size:11px;color:var(--muted);margin-top:1px}
+.chr{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.pill{font-size:10px;font-weight:600;padding:2px 6px;border-radius:20px;white-space:nowrap}
+.p-city{background:var(--blue-l);color:var(--blue)}
+.p-emp{background:var(--amber-l);color:var(--amber)}
+.p-aum{background:var(--green-l);color:var(--green)}
+.p-aum.dim{background:var(--pill);color:var(--hint)}
+.p-st{display:none}
+.p-st.sc-contacted{display:inline;background:var(--blue-l);color:var(--blue)}
+.p-st.sc-connected{display:inline;background:var(--green-l);color:var(--green)}
+.p-st.sc-skip{display:inline;background:var(--red-l);color:var(--red)}
+.p-st.sc-followup{display:inline;background:var(--amber-l);color:var(--amber)}
+.chev{width:14px;height:14px;color:var(--hint);transition:transform .2s;flex-shrink:0}
+.card.open .chev{transform:rotate(180deg)}
+.cb{display:none;border-top:1px solid var(--border2)}
+.card.open .cb{display:block}
+.cbi{display:grid;grid-template-columns:1fr 1fr}
+.col{padding:13px 15px}
+.col+.col{border-left:1px solid var(--border2)}
+.col-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--hint);margin-bottom:8px}
+.crow{display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;font-size:12px}
+.clbl{width:36px;color:var(--hint);font-size:11px;font-weight:500;flex-shrink:0;padding-top:1px}
+.cval a{color:var(--blue);text-decoration:none}
+.cval a:hover{text-decoration:underline}
+.prog-sec{padding:12px 15px;border-top:1px solid var(--border2);background:var(--surface2)}
+.prog-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--hint);margin-bottom:8px}
+.prog-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.st-btn{font-family:inherit;font-size:11px;font-weight:500;padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;transition:all .12s}
+.st-btn.act.sc-none{background:var(--pill);color:var(--pill-t);border-color:transparent}
+.st-btn.act.sc-contacted{background:var(--blue-l);color:var(--blue);border-color:transparent}
+.st-btn.act.sc-connected{background:var(--green-l);color:var(--green);border-color:transparent}
+.st-btn.act.sc-skip{background:var(--red-l);color:var(--red);border-color:transparent}
+.st-btn.act.sc-followup{background:var(--amber-l);color:var(--amber);border-color:transparent}
+.note-row{display:flex;gap:6px}
+.note-inp{flex:1;height:28px;padding:0 8px;border:1px solid var(--border);border-radius:var(--rad-sm);font-family:inherit;font-size:12px;color:var(--text);background:var(--surface);outline:none}
+.note-inp:focus{border-color:var(--blue)}
+.note-save{font-family:inherit;font-size:11px;font-weight:500;padding:0 10px;border-radius:var(--rad-sm);border:1px solid var(--border);background:var(--surface);color:var(--blue);cursor:pointer;height:28px;white-space:nowrap}
+.note-save:hover{background:var(--blue-l)}
+.alist{display:flex;flex-direction:column;gap:5px}
+.arow{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface);border:1px solid var(--border2);gap:6px}
+.ainfo{display:flex;align-items:center;gap:7px;min-width:0}
+.aav{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;background:var(--blue-l);color:var(--blue)}
+.aname{font-size:12px;font-weight:500}
+.atitle{font-size:10px;color:var(--muted)}
+.aacts{display:flex;gap:4px;flex-shrink:0}
+.lbtn{display:inline-flex;align-items:center;font-family:inherit;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;border:none;cursor:pointer;text-decoration:none;transition:opacity .12s}
+.lbtn:hover{opacity:.75}
+.lbtn.li{background:var(--li-l);color:var(--li)}
+.lbtn.sec-lnk{background:var(--red-l);color:var(--red)}
+.lbtn.adv{background:var(--pill);color:var(--pill-t)}
+.lbtn.firm{background:var(--li-l);color:var(--li)}
+.foot{border-top:1px solid var(--border2);padding:8px 15px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.flbl{font-size:11px;color:var(--hint)}
+.spin-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.nodata{font-size:12px;color:var(--hint);font-style:italic}
+.errtxt{font-size:12px;color:var(--red)}
+.no-results{text-align:center;padding:50px 20px;color:var(--muted)}
+.no-results .big{font-size:28px;margin-bottom:8px}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--border)}.stats{grid-template-columns:1fr 1fr}.cbi{grid-template-columns:1fr}.col+.col{border-left:none;border-top:1px solid var(--border2)}}
+</style>
+</head>
+<body>
+
+<div id="load-screen">
+  <div class="ls-title">RIA LinkedIn Prospector</div>
+  <div class="ls-sub">Pulling live data from the SEC IAPD registry&hellip;</div>
+  <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+  <div class="ls-detail" id="prog-detail">Connecting&hellip;</div>
+  <div class="ls-err" id="load-err" style="display:none"></div>
+  <button class="ls-retry" style="display:none" id="retry-btn" onclick="startLoad()">Retry</button>
+</div>
+
+<div id="app" style="display:none">
+  <header class="hdr">
+    <div style="display:flex;align-items:center">
+      <span class="hlogo">RIA Prospector</span>
+      <div class="hdiv"></div>
+      <span class="htitle">LA &rarr; San Diego corridor</span>
+    </div>
+    <div class="hright">
+      <span class="hdate" id="hdr-date"></span>
+      <span class="hbadge">Live SEC</span>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sb-sec">
+        <span class="sb-lbl">Employees</span>
+        <div class="rw"><div class="rh"><span class="rl">Min</span><span class="rv" id="emp-min-v">3</span></div><input type="range" id="emp-min" min="1" max="10" value="3" step="1" oninput="onEmpMin()"></div>
+        <div class="rw"><div class="rh"><span class="rl">Max</span><span class="rv" id="emp-max-v">10</span></div><input type="range" id="emp-max" min="1" max="10" value="10" step="1" oninput="onEmpMax()"></div>
+      </div>
+      <div class="sb-sec">
+        <span class="sb-lbl">Assets under management</span>
+        <div class="tog-row"><span class="tog-lbl">Filter by AUM</span><div class="tog" id="aum-tog" onclick="toggleAUM()"><div class="tog-thumb"></div></div></div>
+        <div id="aum-ctrl" style="display:none">
+          <div class="rw"><div class="rh"><span class="rl">Max AUM</span><span class="rv" id="aum-max-v">$500M</span></div><input type="range" id="aum-max" min="0" max="7" value="5" step="1" oninput="onAUMMax()"></div>
+          <p class="sb-note">AUM loads when you expand a card. Firms not yet opened stay visible until data arrives.</p>
+        </div>
+      </div>
+      <div class="sb-sec">
+        <span class="sb-lbl">My progress</span>
+        <div class="status-pills">
+          <button class="spill on sp-none"      onclick="toggleSF('none',this)">Not started</button>
+          <button class="spill on sp-contacted" onclick="toggleSF('contacted',this)">Contacted</button>
+          <button class="spill on sp-connected" onclick="toggleSF('connected',this)">Connected</button>
+          <button class="spill on sp-followup"  onclick="toggleSF('followup',this)">Follow up</button>
+          <button class="spill on sp-skip"      onclick="toggleSF('skip',this)">Skip</button>
+        </div>
+      </div>
+      <div class="sb-sec">
+        <span class="sb-lbl">Region</span>
+        <div class="rbtns" id="region-btns"></div>
+      </div>
+      <div class="sb-sec">
+        <span class="sb-lbl">City</span>
+        <input class="city-search" type="text" placeholder="Search cities&hellip;" oninput="filterCityList(this.value)">
+        <div class="city-list" id="city-list"></div>
+      </div>
+      <button class="reset-btn" onclick="resetFilters()">Reset all filters</button>
+    </aside>
+    <div class="content">
+      <div class="stats">
+        <div class="stat"><div class="sv" id="s-total">&mdash;</div><div class="sl">Total firms</div></div>
+        <div class="stat"><div class="sv" id="s-showing">&mdash;</div><div class="sl">Showing</div></div>
+        <div class="stat"><div class="sv" id="s-contacted">0</div><div class="sl">Contacted</div></div>
+        <div class="stat"><div class="sv" id="s-connected">0</div><div class="sl">Connected</div></div>
+        <div class="stat"><div class="sv" id="s-advisors">0</div><div class="sl">Advisors fetched</div></div>
+      </div>
+      <div class="toolbar">
+        <input class="tsearch" type="text" placeholder="Search firm name&hellip;" oninput="applyFilters()" id="name-search">
+        <button class="fbtn on" onclick="setFF('all',this)">All</button>
+        <button class="fbtn"    onclick="setFF('fetched',this)">Advisors loaded</button>
+        <span class="rcount" id="rcount">&mdash; firms</span>
+      </div>
+      <div id="cards"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── All SEC calls go through /api/sec?path=... (Vercel serverless proxy) ──
+function secFetch(path, params) {
+  const qs = params ? '&' + new URLSearchParams(params).toString() : '';
+  return fetch('/api/sec?path=' + encodeURIComponent(path) + qs)
+    .then(r => { if (!r.ok) throw new Error('Proxy HTTP ' + r.status); return r.json(); });
+}
+
+const EMP_MIN_DEF = 3, EMP_MAX_DEF = 10, PAGE = 100;
+const AUM_STEPS = [
+  {l:'$10M',v:10},{l:'$25M',v:25},{l:'$50M',v:50},{l:'$100M',v:100},
+  {l:'$250M',v:250},{l:'$500M',v:500},{l:'$1B',v:1000},{l:'No limit',v:Infinity}
+];
+const STATUS_LABELS = {
+  none:'Not started', contacted:'Contacted', connected:'Connected',
+  followup:'Follow up', skip:'Skip'
+};
+const CORRIDOR_ZIPS = new Set();
+for (let z = 90001; z <= 92199; z++) CORRIDOR_ZIPS.add(String(z));
+const CITY_REGION = {
+  'San Diego':'San Diego','La Jolla':'San Diego','Del Mar':'San Diego',
+  'Solana Beach':'San Diego','Encinitas':'San Diego','Carlsbad':'San Diego',
+  'Coronado':'San Diego','La Mesa':'San Diego','Poway':'San Diego',
+  'Rancho Santa Fe':'San Diego','Lakeside':'San Diego','El Cajon':'San Diego',
+  'Los Angeles':'LA - Core','Beverly Hills':'LA - Core','Century City':'LA - Core',
+  'West Hollywood':'LA - Core','Culver City':'LA - Core',
+  'Santa Monica':'LA - Westside','Marina Del Rey':'LA - Westside','Venice':'LA - Westside',
+  'El Segundo':'LA - Westside','Manhattan Beach':'LA - Westside',
+  'Hermosa Beach':'LA - Westside','Redondo Beach':'LA - Westside',
+  'Torrance':'LA - Westside','Palos Verdes Estates':'LA - Westside',
+  'Encino':'LA - Valley','Sherman Oaks':'LA - Valley','Studio City':'LA - Valley',
+  'Woodland Hills':'LA - Valley','Calabasas':'LA - Valley',
+  'Pasadena':'LA - East','Arcadia':'LA - East','Glendale':'LA - East',
+  'Burbank':'LA - East','South Pasadena':'LA - East',
+  'Claremont':'LA - East','Glendora':'LA - East',
+  'Westlake Village':'Ventura/SFV','Thousand Oaks':'Ventura/SFV','Valencia':'Ventura/SFV',
+  'Long Beach':'South Bay','Seal Beach':'South Bay','Cypress':'South Bay','Los Alamitos':'South Bay'
+};
+
+let FIRMS = [];
+const AC = {}, AUMC = {};
+let totalAdvisors = 0;
+let F = {
+  empMin:EMP_MIN_DEF, empMax:EMP_MAX_DEF, aumOn:false, aumMax:500,
+  region:'all', cities:new Set(), fetchFilter:'all',
+  statuses:new Set(Object.keys(STATUS_LABELS))
+};
+
+const LS_KEY = 'ria_v3';
+function loadP()       { try { return JSON.parse(localStorage.getItem(LS_KEY)||'{}'); } catch { return {}; } }
+function getP(crd)     { return loadP()[crd] || {status:'none',note:''}; }
+function saveStatus(crd,s) { const a=loadP(); a[crd]={...getP(crd),status:s}; localStorage.setItem(LS_KEY,JSON.stringify(a)); }
+function saveNote(crd,n)   { const a=loadP(); a[crd]={...getP(crd),note:n};   localStorage.setItem(LS_KEY,JSON.stringify(a)); }
+function updStats() {
+  const a=loadP(); let c=0,cn=0;
+  Object.values(a).forEach(p=>{ if(p.status==='contacted')c++; if(p.status==='connected')cn++; });
+  document.getElementById('s-contacted').textContent=c;
+  document.getElementById('s-connected').textContent=cn;
+}
+
+async function startLoad() {
+  document.getElementById('load-err').style.display='none';
+  document.getElementById('retry-btn').style.display='none';
+  setProg(5,'Querying SEC IAPD...');
+  try {
+    FIRMS = await fetchFirms();
+    setProg(100,'Loaded '+FIRMS.length+' firms');
+    setTimeout(initApp,350);
+  } catch(e) {
+    document.getElementById('load-err').textContent =
+      'Could not load SEC data. Error: '+e.message+
+      ' — Please check the Vercel function logs (vercel.com dashboard → your project → Functions tab).';
+    document.getElementById('load-err').style.display='block';
+    document.getElementById('retry-btn').style.display='inline-block';
+    setProg(0,'Failed.');
+  }
+}
+
+function setProg(pct,txt) {
+  document.getElementById('prog-fill').style.width=pct+'%';
+  document.getElementById('prog-detail').textContent=txt;
+}
+function toTitleCase(s) { return s.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()); }
+
+async function fetchFirms() {
+  let from=0, total=null, all=[];
+  do {
+    setProg(Math.min(8+(from/3000)*78,85),`Fetching firms ${from+1}–${from+PAGE}...`);
+    const data = await secFetch('firms/search', {
+      query:'', state:'CA', exactMatch:'false', type:'IA', from, size:PAGE
+    });
+    if (total===null) total = data.hits?.total?.value || data.total || 0;
+    const hits = data.hits?.hits || data.results || [];
+    if (!hits.length) break;
+    hits.forEach(h => {
+      const s = h._source||h;
+      const emp = parseInt(s.emp_total||s.employees||0);
+      if (emp<EMP_MIN_DEF||emp>EMP_MAX_DEF) return;
+      const zip  = (s.zipcode||s.zip||'').replace(/\D/g,'').slice(0,5);
+      const city = toTitleCase(s.city||'');
+      const inC  = CORRIDOR_ZIPS.has(zip) ||
+        Object.keys(CITY_REGION).some(c=>city.toLowerCase()===c.toLowerCase());
+      if (!inC) return;
+      const crd = String(s.org_pk||s.crd||'');
+      if (!crd) return;
+      all.push({ crd, name:(s.org_name||s.name||'Unknown').trim(), city, employees:emp,
+                 adv:'https://www.adviserinfo.sec.gov/firm/summary/'+crd });
+    });
+    from += PAGE;
+  } while (from<(total||0) && from<5000);
+  const seen=new Set();
+  return all.filter(f=>{ if(seen.has(f.crd))return false; seen.add(f.crd); return true; });
+}
+
+function initApp() {
+  document.getElementById('load-screen').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('s-total').textContent=FIRMS.length;
+  document.getElementById('hdr-date').textContent=
+    'Fetched '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  buildRegions(); buildCityList(); updStats(); applyFilters();
+}
+
+function applyFilters() {
+  const q=document.getElementById('name-search').value.toLowerCase().trim();
+  const pr=loadP();
+  const vis=FIRMS.filter(f=>{
+    if(f.employees<F.empMin||f.employees>F.empMax) return false;
+    if(F.cities.size>0&&!F.cities.has(f.city)) return false;
+    if(q&&!f.name.toLowerCase().includes(q)) return false;
+    if(F.fetchFilter==='fetched'&&!Array.isArray(AC[f.crd])) return false;
+    const st=(pr[f.crd]||{}).status||'none';
+    if(!F.statuses.has(st)) return false;
+    if(F.aumOn&&F.aumMax!==Infinity){const a=AUMC[f.crd];if(typeof a==='number'&&a>F.aumMax)return false;}
+    return true;
+  });
+  document.getElementById('s-showing').textContent=vis.length;
+  document.getElementById('rcount').textContent=vis.length+' firms';
+  renderCards(vis);
+}
+
+function onEmpMin(){let v=+document.getElementById('emp-min').value;if(v>F.empMax){v=F.empMax;document.getElementById('emp-min').value=v;}F.empMin=v;document.getElementById('emp-min-v').textContent=v;applyFilters();}
+function onEmpMax(){let v=+document.getElementById('emp-max').value;if(v<F.empMin){v=F.empMin;document.getElementById('emp-max').value=v;}F.empMax=v;document.getElementById('emp-max-v').textContent=v;applyFilters();}
+function onAUMMax(){const s=AUM_STEPS[+document.getElementById('aum-max').value];F.aumMax=s.v;document.getElementById('aum-max-v').textContent=s.l;applyFilters();}
+function toggleAUM(){F.aumOn=!F.aumOn;document.getElementById('aum-tog').classList.toggle('on',F.aumOn);document.getElementById('aum-ctrl').style.display=F.aumOn?'block':'none';applyFilters();}
+function toggleSF(s,btn){if(F.statuses.has(s)){if(F.statuses.size===1)return;F.statuses.delete(s);btn.classList.remove('on');}else{F.statuses.add(s);btn.classList.add('on');}applyFilters();}
+function setFF(t,btn){document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');F.fetchFilter=t;applyFilters();}
+function getRegion(city){return CITY_REGION[city]||'Other';}
+function buildRegions(){
+  const rs=['all',...new Set(FIRMS.map(f=>getRegion(f.city)).sort())];
+  const el=document.getElementById('region-btns'); el.innerHTML='';
+  rs.forEach((r,i)=>{
+    const b=document.createElement('button');
+    b.className='rbtn'+(i===0?' on':'');
+    b.textContent=r==='all'?'All regions':r;
+    b.addEventListener('click',()=>setRegion(r,b));
+    el.appendChild(b);
+  });
+}
+function setRegion(r,btn){
+  document.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on'); F.region=r; F.cities.clear();
+  if(r!=='all') FIRMS.forEach(f=>{if(getRegion(f.city)===r)F.cities.add(f.city);});
+  buildCityList(); applyFilters();
+}
+function buildCityList(q){
+  const sq=(q||'').toLowerCase();
+  const cities=[...new Set(FIRMS.map(f=>f.city).sort())];
+  const el=document.getElementById('city-list'); el.innerHTML='';
+  cities.filter(c=>!sq||c.toLowerCase().includes(sq)).forEach(c=>{
+    const lbl=document.createElement('label'); lbl.className='city-item';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=c; cb.checked=F.cities.has(c);
+    cb.addEventListener('change',()=>{
+      if(cb.checked)F.cities.add(c);else F.cities.delete(c);
+      document.querySelectorAll('.rbtn').forEach((b,i)=>b.classList.toggle('on',i===0));
+      F.region='all'; applyFilters();
+    });
+    lbl.appendChild(cb); lbl.appendChild(document.createTextNode(' '+c)); el.appendChild(lbl);
+  });
+}
+function filterCityList(q){buildCityList(q);}
+function resetFilters(){
+  F={empMin:EMP_MIN_DEF,empMax:EMP_MAX_DEF,aumOn:false,aumMax:500,region:'all',
+     cities:new Set(),fetchFilter:'all',statuses:new Set(Object.keys(STATUS_LABELS))};
+  document.getElementById('emp-min').value=EMP_MIN_DEF; document.getElementById('emp-min-v').textContent=EMP_MIN_DEF;
+  document.getElementById('emp-max').value=EMP_MAX_DEF; document.getElementById('emp-max-v').textContent=EMP_MAX_DEF;
+  document.getElementById('aum-tog').classList.remove('on'); document.getElementById('aum-ctrl').style.display='none';
+  document.getElementById('aum-max').value=5; document.getElementById('aum-max-v').textContent='$500M';
+  document.getElementById('name-search').value='';
+  document.querySelectorAll('.rbtn').forEach((b,i)=>b.classList.toggle('on',i===0));
+  document.querySelectorAll('.fbtn').forEach((b,i)=>b.classList.toggle('on',i===0));
+  document.querySelectorAll('.spill').forEach(b=>b.classList.add('on'));
+  buildCityList(); applyFilters();
+}
+
+async function fetchAdvisors(crd,firmName){
+  if(AC[crd]!==undefined)return;
+  AC[crd]='loading'; renderAdv(crd,firmName);
+  try {
+    const json = await secFetch('firms/'+crd+'/individuals');
+    const hits=json.hits?.hits||json.individuals||json.results||[];
+    const advisors=hits.slice(0,8).map(h=>{
+      const s=h._source||h;
+      return{name:((s.ind_firstname||s.firstName||'')+' '+(s.ind_lastname||s.lastName||'')).trim(),
+             title:(s.current_employments||[]).map(e=>e.position||'').filter(Boolean)[0]||s.position||'',
+             crd:String(s.ind_pk||s.crd||'')};
+    }).filter(a=>a.name.length>2);
+    AC[crd]=advisors; totalAdvisors+=advisors.length;
+    document.getElementById('s-advisors').textContent=totalAdvisors;
+  } catch(e){AC[crd]='error';}
+  renderAdv(crd,firmName);
+}
+
+async function fetchAUM(crd){
+  if(AUMC[crd]!==undefined)return; AUMC[crd]=null;
+  try {
+    const d = await secFetch('firms/'+crd+'/summary');
+    const raw=d.registrationInfo?.totalRegulatoryAUM||d.regulatory_assets_under_management||d.aum||d.totalAssets||null;
+    if(raw!==null){
+      AUMC[crd]=Math.round(raw/1e6);
+      const pill=document.getElementById('ap-'+crd);
+      const det=document.getElementById('ad-'+crd);
+      if(pill){pill.textContent=fmtAUM(AUMC[crd]);pill.classList.remove('dim');}
+      if(det)det.textContent=fmtAUM(AUMC[crd]);
+      if(F.aumOn)applyFilters();
+    }
+  }catch(e){AUMC[crd]=null;}
+}
+
+function renderAdv(crd,firmName){
+  const el=document.getElementById('adv-'+crd); if(!el)return;
+  const d=AC[crd];
+  if(d==='loading'){el.innerHTML='<div class="spin-wrap"><div class="spinner"></div>Fetching from SEC...</div>';return;}
+  if(d==='error'){el.innerHTML='<span class="errtxt">SEC request failed — use firm LinkedIn search below.</span>';return;}
+  if(!d||d.length===0){el.innerHTML='<span class="nodata">No individual registrants found. Use firm LinkedIn search.</span>';return;}
+  el.innerHTML='';
+  const list=document.createElement('div'); list.className='alist';
+  d.forEach(a=>{
+    const row=document.createElement('div'); row.className='arow';
+    const info=document.createElement('div'); info.className='ainfo';
+    const av=document.createElement('div'); av.className='aav'; av.textContent=ini(a.name);
+    const meta=document.createElement('div');
+    const nm=document.createElement('div'); nm.className='aname'; nm.textContent=a.name;
+    const ttl=document.createElement('div'); ttl.className='atitle'; ttl.textContent=a.title||'Advisor';
+    meta.appendChild(nm); meta.appendChild(ttl); info.appendChild(av); info.appendChild(meta);
+    const acts=document.createElement('div'); acts.className='aacts';
+    const liA=document.createElement('a'); liA.className='lbtn li'; liA.target='_blank'; liA.textContent='LinkedIn ↗';
+    liA.href='https://www.linkedin.com/search/results/people/?keywords='+encodeURIComponent(a.name+' '+firmName)+'&origin=GLOBAL_SEARCH_HEADER';
+    acts.appendChild(liA);
+    if(a.crd){const secA=document.createElement('a');secA.className='lbtn sec-lnk';secA.target='_blank';secA.textContent='SEC ↗';secA.href='https://www.adviserinfo.sec.gov/individual/summary/'+a.crd;acts.appendChild(secA);}
+    row.appendChild(info); row.appendChild(acts); list.appendChild(row);
+  });
+  el.appendChild(list);
+}
+
+function buildCard(f){
+  const pr=loadP(); const p=pr[f.crd]||{status:'none',note:''}; const st=p.status||'none';
+  const av=AUMC[f.crd]; const aumTxt=typeof av==='number'?fmtAUM(av):'...'; const aumDim=typeof av!=='number';
+  const card=document.createElement('div');
+  card.className='card'+(st!=='none'?' sc-'+st:''); card.id='card-'+f.crd;
+  const ch=document.createElement('div'); ch.className='ch';
+  ch.addEventListener('click',()=>toggleCard(f.crd));
+  const chl=document.createElement('div'); chl.className='chl';
+  const avEl=document.createElement('div'); avEl.className='av'; avEl.textContent=ini(f.name);
+  const meta=document.createElement('div');
+  const fnEl=document.createElement('div'); fnEl.className='fname'; fnEl.title=f.name;
+  fnEl.textContent=f.name.length>48?f.name.slice(0,45)+'...':f.name;
+  const subEl=document.createElement('div'); subEl.className='fsub';
+  subEl.textContent='CRD #'+f.crd+' · '+f.city;
+  meta.appendChild(fnEl); meta.appendChild(subEl); chl.appendChild(avEl); chl.appendChild(meta);
+  const chr=document.createElement('div'); chr.className='chr';
+  const mkPill=(cls,txt)=>{const s=document.createElement('span');s.className='pill '+cls;s.textContent=txt;return s;};
+  chr.appendChild(mkPill('p-city',f.city));
+  chr.appendChild(mkPill('p-emp',f.employees+' emp'));
+  const aumPill=mkPill('p-aum'+(aumDim?' dim':''),aumTxt); aumPill.id='ap-'+f.crd; chr.appendChild(aumPill);
+  if(st!=='none') chr.appendChild(mkPill('p-st sc-'+st,STATUS_LABELS[st]));
+  const chev=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  chev.setAttribute('class','chev');chev.setAttribute('viewBox','0 0 16 16');chev.setAttribute('fill','none');
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d','M4 6l4 4 4-4');path.setAttribute('stroke','currentColor');
+  path.setAttribute('stroke-width','1.5');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');
+  chev.appendChild(path); chr.appendChild(chev);
+  ch.appendChild(chl); ch.appendChild(chr); card.appendChild(ch);
+  const cb=document.createElement('div'); cb.className='cb';
+  const cbi=document.createElement('div'); cbi.className='cbi';
+  const col1=document.createElement('div'); col1.className='col';
+  const h1=document.createElement('div'); h1.className='col-h'; h1.textContent='Firm info'; col1.appendChild(h1);
+  const mkRow=(lbl,val,isLink)=>{
+    const row=document.createElement('div'); row.className='crow';
+    const l=document.createElement('span'); l.className='clbl'; l.textContent=lbl;
+    const v=document.createElement('span'); v.className='cval';
+    if(isLink){const a=document.createElement('a');a.href=val;a.target='_blank';a.textContent='SEC filing ↗';v.appendChild(a);}
+    else v.textContent=val;
+    row.appendChild(l); row.appendChild(v); return row;
+  };
+  col1.appendChild(mkRow('City',f.city));
+  col1.appendChild(mkRow('Emp',String(f.employees)));
+  const aumRow=mkRow('AUM',aumTxt); aumRow.querySelector('.cval').id='ad-'+f.crd; col1.appendChild(aumRow);
+  col1.appendChild(mkRow('ADV',f.adv,true)); cbi.appendChild(col1);
+  const col2=document.createElement('div'); col2.className='col';
+  const h2=document.createElement('div'); h2.className='col-h'; h2.textContent='Advisors (live from SEC)'; col2.appendChild(h2);
+  const advEl=document.createElement('div'); advEl.id='adv-'+f.crd;
+  advEl.innerHTML='<div class="spin-wrap"><div class="spinner"></div>Loading...</div>';
+  col2.appendChild(advEl); cbi.appendChild(col2); cb.appendChild(cbi);
+  const progSec=document.createElement('div'); progSec.className='prog-sec';
+  const ph=document.createElement('div'); ph.className='prog-h'; ph.textContent='My progress'; progSec.appendChild(ph);
+  const progRow=document.createElement('div'); progRow.className='prog-row';
+  Object.entries(STATUS_LABELS).forEach(([s,lbl])=>{
+    const btn=document.createElement('button');
+    btn.className='st-btn sc-'+s+(st===s?' act':''); btn.textContent=lbl;
+    btn.addEventListener('click',()=>{
+      const cur=getP(f.crd).status; const ns=cur===s?'none':s;
+      saveStatus(f.crd,ns); updStats();
+      card.className=card.className.replace(/\bsc-\S+/g,'').trim()+(ns!=='none'?' sc-'+ns:'');
+      const ep=chr.querySelector('.p-st'); if(ep)chr.removeChild(ep);
+      if(ns!=='none'){const np=mkPill('p-st sc-'+ns,STATUS_LABELS[ns]);chr.insertBefore(np,chev);}
+      progRow.querySelectorAll('.st-btn').forEach(b=>b.classList.remove('act'));
+      progRow.querySelector('.st-btn.sc-'+ns)?.classList.add('act');
+      applyFilters();
+    });
+    progRow.appendChild(btn);
+  });
+  progSec.appendChild(progRow);
+  const noteRow=document.createElement('div'); noteRow.className='note-row';
+  const noteInp=document.createElement('input'); noteInp.className='note-inp'; noteInp.type='text';
+  noteInp.placeholder='Add a note...'; noteInp.value=p.note||'';
+  const noteSave=document.createElement('button'); noteSave.className='note-save'; noteSave.textContent='Save note';
+  noteSave.addEventListener('click',()=>{saveNote(f.crd,noteInp.value);noteSave.textContent='Saved ✓';setTimeout(()=>noteSave.textContent='Save note',1500);});
+  noteRow.appendChild(noteInp); noteRow.appendChild(noteSave); progSec.appendChild(noteRow); cb.appendChild(progSec);
+  const foot=document.createElement('div'); foot.className='foot';
+  const flbl=document.createElement('span'); flbl.className='flbl'; flbl.textContent='LinkedIn:';
+  const firmLi=document.createElement('a'); firmLi.className='lbtn firm'; firmLi.target='_blank'; firmLi.textContent='Search all at firm ↗';
+  firmLi.href='https://www.linkedin.com/search/results/people/?keywords='+encodeURIComponent('"'+f.name+'"')+'&origin=GLOBAL_SEARCH_HEADER';
+  const advLnk=document.createElement('a'); advLnk.className='lbtn adv'; advLnk.target='_blank'; advLnk.textContent='SEC ADV ↗'; advLnk.href=f.adv;
+  foot.appendChild(flbl); foot.appendChild(firmLi); foot.appendChild(advLnk); cb.appendChild(foot);
+  card.appendChild(cb); return card;
+}
+
+function toggleCard(crd){
+  const card=document.getElementById('card-'+crd); if(!card)return;
+  card.classList.toggle('open');
+  if(card.classList.contains('open')){
+    const firm=FIRMS.find(f=>f.crd===crd);
+    if(firm){fetchAdvisors(crd,firm.name);fetchAUM(crd);}
+  }
+}
+
+function renderCards(firms){
+  const container=document.getElementById('cards'); container.innerHTML='';
+  if(!firms.length){container.innerHTML='<div class="no-results"><div class="big">🔍</div><p>No firms match your filters.</p></div>';return;}
+  const frag=document.createDocumentFragment();
+  firms.forEach(f=>frag.appendChild(buildCard(f)));
+  container.appendChild(frag);
+}
+
+function ini(name){return(name||'').replace(/[^A-Za-z ]/g,'').trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]?.toUpperCase()||'').join('')||'??';}
+function fmtAUM(m){if(m===null||m===undefined)return'—';if(m>=1000)return'$'+(m/1000).toFixed(1).replace(/\.0$/,'')+'B';return'$'+m+'M';}
+
+startLoad();
+</script>
+</body>
+</html>

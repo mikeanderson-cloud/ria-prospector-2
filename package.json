@@ -1,0 +1,8 @@
+{
+  "name": "ria-prospector",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo ready"
+  }
+}
