@@ -220,8 +220,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <aside class="sidebar">
       <div class="sb-sec">
         <span class="sb-lbl">Employees</span>
-        <div class="rw"><div class="rh"><span class="rl">Min</span><span class="rv" id="emp-min-v">3</span></div><input type="range" id="emp-min" min="1" max="10" value="3" step="1" oninput="onEmpMin()"></div>
-        <div class="rw"><div class="rh"><span class="rl">Max</span><span class="rv" id="emp-max-v">10</span></div><input type="range" id="emp-max" min="1" max="10" value="10" step="1" oninput="onEmpMax()"></div>
+        <div class="rw"><div class="rh"><span class="rl">Min</span><span class="rv" id="emp-min-v">1</span></div><input type="range" id="emp-min" min="1" max="500" value="1" step="1" oninput="onEmpMin()"></div>
+        <div class="rw"><div class="rh"><span class="rl">Max</span><span class="rv" id="emp-max-v">500</span></div><input type="range" id="emp-max" min="1" max="500" value="500" step="1" oninput="onEmpMax()"></div>
       </div>
       <div class="sb-sec">
         <span class="sb-lbl">Assets under management</span>
@@ -279,7 +279,7 @@ function secFetch(path, params) {
     .then(r => { if (!r.ok) throw new Error('Proxy HTTP ' + r.status); return r.json(); });
 }
 
-const EMP_MIN_DEF = 3, EMP_MAX_DEF = 10, PAGE = 100;
+const EMP_MIN_DEF = 1, EMP_MAX_DEF = 500, PAGE = 100;
 const AUM_STEPS = [
   {l:'$10M',v:10},{l:'$25M',v:25},{l:'$50M',v:50},{l:'$100M',v:100},
   {l:'$250M',v:250},{l:'$500M',v:500},{l:'$1B',v:1000},{l:'No limit',v:Infinity}
@@ -290,24 +290,19 @@ const STATUS_LABELS = {
 };
 const CORRIDOR_ZIPS = new Set();
 for (let z = 90001; z <= 92199; z++) CORRIDOR_ZIPS.add(String(z));
-const CITY_REGION = {
-  'San Diego':'San Diego','La Jolla':'San Diego','Del Mar':'San Diego',
-  'Solana Beach':'San Diego','Encinitas':'San Diego','Carlsbad':'San Diego',
-  'Coronado':'San Diego','La Mesa':'San Diego','Poway':'San Diego',
-  'Rancho Santa Fe':'San Diego','Lakeside':'San Diego','El Cajon':'San Diego',
-  'Los Angeles':'LA - Core','Beverly Hills':'LA - Core','Century City':'LA - Core',
-  'West Hollywood':'LA - Core','Culver City':'LA - Core',
-  'Santa Monica':'LA - Westside','Marina Del Rey':'LA - Westside','Venice':'LA - Westside',
-  'El Segundo':'LA - Westside','Manhattan Beach':'LA - Westside',
-  'Hermosa Beach':'LA - Westside','Redondo Beach':'LA - Westside',
-  'Torrance':'LA - Westside','Palos Verdes Estates':'LA - Westside',
-  'Encino':'LA - Valley','Sherman Oaks':'LA - Valley','Studio City':'LA - Valley',
-  'Woodland Hills':'LA - Valley','Calabasas':'LA - Valley',
-  'Pasadena':'LA - East','Arcadia':'LA - East','Glendale':'LA - East',
-  'Burbank':'LA - East','South Pasadena':'LA - East',
-  'Claremont':'LA - East','Glendora':'LA - East',
-  'Westlake Village':'Ventura/SFV','Thousand Oaks':'Ventura/SFV','Valencia':'Ventura/SFV',
-  'Long Beach':'South Bay','Seal Beach':'South Bay','Cypress':'South Bay','Los Alamitos':'South Bay'
+// Region grouping — built dynamically from state data in loaded firms
+// getRegion() maps state abbreviations to US regions
+const STATE_REGION = {
+  'CA':'West','OR':'West','WA':'West','NV':'West','AZ':'West','ID':'West',
+  'MT':'West','WY':'West','CO':'West','UT':'West','NM':'West','AK':'West','HI':'West',
+  'TX':'South','FL':'South','GA':'South','NC':'South','SC':'South','VA':'South',
+  'TN':'South','AL':'South','MS':'South','AR':'South','LA':'South','OK':'South',
+  'KY':'South','WV':'South','MD':'South','DE':'South','DC':'South',
+  'NY':'Northeast','NJ':'Northeast','CT':'Northeast','MA':'Northeast','RI':'Northeast',
+  'NH':'Northeast','VT':'Northeast','ME':'Northeast','PA':'Northeast',
+  'IL':'Midwest','OH':'Midwest','MI':'Midwest','IN':'Midwest','WI':'Midwest',
+  'MN':'Midwest','IA':'Midwest','MO':'Midwest','ND':'Midwest','SD':'Midwest',
+  'NE':'Midwest','KS':'Midwest',
 };
 
 let FIRMS = [];
@@ -361,17 +356,27 @@ function handleCSV(input) {
   if (!file) return;
   document.getElementById('ls-prog').style.display = 'block';
   document.getElementById('load-err').style.display = 'none';
-  setProg(20, 'Reading ' + file.name + '...');
+  setProg(20, 'Reading ' + file.name + ' (' + Math.round(file.size/1024) + ' KB)...');
   var reader = new FileReader();
   reader.onload = function(e) {
     try {
+      var text = e.target.result;
+      console.log('[RIA] File size chars:', text.length);
+      console.log('[RIA] First 200 chars:', text.slice(0,200));
+      console.log('[RIA] Line count (naive):', text.split('\n').length);
       setProg(60, 'Parsing CSV...');
-      var firms = parseCSV(e.target.result);
+      var firms = parseCSV(text);
+      console.log('[RIA] Firms parsed:', firms.length);
+      if (firms.length > 0) {
+        console.log('[RIA] Sample firm 1:', JSON.stringify(firms[0]));
+        console.log('[RIA] Sample firm 100:', JSON.stringify(firms[Math.min(99,firms.length-1)]));
+      }
       if (!firms.length) throw new Error('No valid firm rows found in CSV.');
       setProg(100, 'Loaded ' + firms.length + ' firms');
       FIRMS = firms;
       setTimeout(initApp, 300);
     } catch(err) {
+      console.error('[RIA] Parse error:', err);
       var errEl = document.getElementById('load-err');
       errEl.textContent = 'Could not parse CSV: ' + err.message;
       errEl.style.display = 'block';
@@ -382,39 +387,56 @@ function handleCSV(input) {
 }
 
 function parseCSV(text) {
-  function parseLine(line) {
-    var result = [];
+  // Proper RFC-4180 CSV parser — handles quoted fields with embedded newlines and commas
+  function parseAllRows(str) {
+    var rows = [];
+    var row = [];
     var cur = '';
     var inQ = false;
-    for (var i = 0; i < line.length; i++) {
-      var ch = line[i];
-      if (ch === '"') {
-        if (inQ && line[i+1] === '"') { cur += '"'; i++; }
-        else inQ = !inQ;
-      } else if (ch === ',' && !inQ) {
-        result.push(cur.trim()); cur = '';
+    var i = 0;
+    while (i < str.length) {
+      var ch = str[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (str[i+1] === '"') { cur += '"'; i += 2; continue; } // escaped quote
+          else { inQ = false; i++; continue; }                     // closing quote
+        }
+        cur += ch; i++;
       } else {
-        cur += ch;
+        if (ch === '"') { inQ = true; i++; }
+        else if (ch === ',') { row.push(cur); cur = ''; i++; }
+        else if (ch === '\n' || (ch === '\r' && str[i+1] === '\n')) {
+          row.push(cur); cur = '';
+          if (row.some(function(c){return c.trim();})) rows.push(row);
+          row = [];
+          i += (ch === '\r') ? 2 : 1;
+        } else if (ch === '\r') {
+          row.push(cur); cur = '';
+          if (row.some(function(c){return c.trim();})) rows.push(row);
+          row = [];
+          i++;
+        } else { cur += ch; i++; }
       }
     }
-    result.push(cur.trim());
-    return result;
+    if (cur || row.length) { row.push(cur); if (row.some(function(c){return c.trim();})) rows.push(row); }
+    return rows;
   }
 
-  var lines = text.split('\n').map(function(l) { return l.replace(/\r$/, ''); }).filter(function(l) { return l.trim(); });
-  if (lines.length < 2) throw new Error('CSV has fewer than 2 rows.');
+  var allRows = parseAllRows(text);
+  console.log('[RIA] parseAllRows result:', allRows.length, 'rows');
+  if (allRows.length > 1) console.log('[RIA] Header row sample:', allRows[0].slice(0,5));
+  if (allRows.length < 2) throw new Error('CSV has fewer than 2 rows.');
 
-  // Find header row (first row containing firm name or CRD indicators)
+  // Find header row — first row containing firm name or CRD indicators
   var headerIdx = 0;
-  for (var hi = 0; hi < Math.min(5, lines.length); hi++) {
-    var cols = parseLine(lines[hi]);
-    var found = cols.some(function(c) {
+  for (var hi = 0; hi < Math.min(5, allRows.length); hi++) {
+    var found = allRows[hi].some(function(c) {
       return /firm.?name|business.?name|crd/i.test(c);
     });
     if (found) { headerIdx = hi; break; }
   }
 
-  var headers = parseLine(lines[headerIdx]).map(function(h) { return h.toLowerCase().trim(); });
+  var headers = allRows[headerIdx].map(function(h) { return h.toLowerCase().trim(); });
 
   function col(names) {
     for (var ni = 0; ni < names.length; ni++) {
@@ -426,25 +448,36 @@ function parseCSV(text) {
     return -1;
   }
 
-  var iName  = col(['firm name', 'primary business name', 'business name']);
-  var iCRD   = col(['crd #', 'crd#', 'organization crd', 'crd number']);
-  var iCity  = col(['main office city', 'city']);
-  var iState = col(['main office state', 'state']);
-  var iZip   = col(['main office postal', 'zip']);
-  var iEmp   = col(['employees', '5b(1)', '5a']);
-  var iPhone = col(['main office telephone', 'phone', 'telephone']);
-  var iAdv   = col(['adv link', 'adv']);
+  // Use exact matches first, then partial — prevents 'adv' matching 'advisers'
+  function colExact(exactName, fallbackPartials) {
+    var lower = exactName.toLowerCase();
+    for (var i = 0; i < headers.length; i++) {
+      if (headers[i] === lower) return i;
+    }
+    return col(fallbackPartials || []);
+  }
 
+  var iName  = col(['primary business name', 'firm name', 'business name']);
+  var iCRD   = colExact('organization crd#', ['organization crd', 'crd #', 'crd#', 'crd number']);
+  var iCity  = colExact('main office city', ['city']);
+  var iState = colExact('main office state', ['state']);
+  var iZip   = colExact('main office postal code', ['main office postal', 'zip', 'postal']);
+  var iEmp   = colExact('5b(1)', ['5a', 'employees']);
+  var iPhone = colExact('main office telephone number', ['main office telephone', 'phone', 'telephone']);
+  var iAUM   = colExact('5f(2)(a)', ['total regulatory assets', 'aum']);
+  var iAdv   = colExact('adv link', []);  // exact only — prevent 'adv' matching 'advisers'
+
+  console.log('[RIA] Column detection: name='+iName+' crd='+iCRD+' city='+iCity+' state='+iState+' zip='+iZip+' emp='+iEmp);
   if (iName === -1) throw new Error('Cannot find a Firm Name column. Check CSV has headers in row 1.');
 
   var firms = [];
   var seen = {};
 
-  for (var ri = headerIdx + 1; ri < lines.length; ri++) {
-    var row = parseLine(lines[ri]);
+  for (var ri = headerIdx + 1; ri < allRows.length; ri++) {
+    var row = allRows[ri];
     var name = (row[iName] || '').trim();
     if (!name) continue;
-    if (name.indexOf('←') === 0) continue; // skip placeholder rows
+    if (name.indexOf('\u2190') === 0) continue;
 
     var crd = iCRD !== -1 ? (row[iCRD] || '').trim() : '';
     var key = crd + '|' + name;
@@ -460,11 +493,18 @@ function parseCSV(text) {
     var city  = iCity  !== -1 ? toTitleCase(row[iCity]  || '') : '';
     var state = iState !== -1 ? (row[iState] || '').trim().toUpperCase() : '';
     var phone = iPhone !== -1 ? (row[iPhone] || '').trim() : '';
-    var adv   = iAdv   !== -1 && row[iAdv] ? row[iAdv].trim() : '';
+
+    var adv = '';
+    if (iAdv !== -1 && row[iAdv] && row[iAdv].trim().indexOf('http') === 0) {
+      adv = row[iAdv].trim();
+    }
     if (!adv && crd) adv = 'https://adviserinfo.sec.gov/firm/summary/' + crd;
 
+    var aumRaw = iAUM !== -1 ? (row[iAUM] || '').replace(/,/g, '').trim() : '';
+    var aum = aumRaw && !isNaN(aumRaw) ? Math.round(parseFloat(aumRaw) / 1000000) : null;
+
     firms.push({ crd: crd, name: name, city: city, state: state,
-                  zip: zip5, employees: emp, phone: phone, adv: adv });
+                 zip: zip5, employees: emp, phone: phone, adv: adv, aum: aum });
   }
 
   return firms;
@@ -475,14 +515,24 @@ function initApp() {
   document.getElementById('load-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('s-total').textContent=FIRMS.length;
-  // Update employee filter max if CSV has firms with more than 10 employees
+
+  // Dynamically set slider range based on actual data
   const maxEmpInData = Math.max(...FIRMS.map(f => f.employees || 0));
-  if (maxEmpInData > 10) {
-    const empMaxEl = document.getElementById('emp-max');
-    empMaxEl.max = Math.min(maxEmpInData, 500);
-  }
-  document.getElementById('hdr-date').textContent=
-    FIRMS.length + ' firms loaded';
+  const sliderMax = Math.min(Math.max(maxEmpInData, 10), 5000);
+  document.getElementById('emp-min').max = sliderMax;
+  document.getElementById('emp-max').max = sliderMax;
+
+  // Reset filters to show everything in the loaded dataset
+  F.empMin = 1;
+  F.empMax = sliderMax;
+  F.cities = new Set();
+  F.region = 'all';
+  document.getElementById('emp-min').value = 1;
+  document.getElementById('emp-min-v').textContent = 1;
+  document.getElementById('emp-max').value = sliderMax;
+  document.getElementById('emp-max-v').textContent = sliderMax;
+
+  document.getElementById('hdr-date').textContent = FIRMS.length.toLocaleString() + ' firms loaded';
   buildRegions(); buildCityList(); updStats(); applyFilters();
 }
 
@@ -510,9 +560,15 @@ function onAUMMax(){const s=AUM_STEPS[+document.getElementById('aum-max').value]
 function toggleAUM(){F.aumOn=!F.aumOn;document.getElementById('aum-tog').classList.toggle('on',F.aumOn);document.getElementById('aum-ctrl').style.display=F.aumOn?'block':'none';applyFilters();}
 function toggleSF(s,btn){if(F.statuses.has(s)){if(F.statuses.size===1)return;F.statuses.delete(s);btn.classList.remove('on');}else{F.statuses.add(s);btn.classList.add('on');}applyFilters();}
 function setFF(t,btn){document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');F.fetchFilter=t;applyFilters();}
-function getRegion(city){return CITY_REGION[city]||'Other';}
+function getRegion(f){
+  // If state is known, group by US region
+  if(f.state && STATE_REGION[f.state.toUpperCase()]) return STATE_REGION[f.state.toUpperCase()];
+  // Fallback: use state code itself if available
+  if(f.state) return f.state.toUpperCase();
+  return 'Other';
+}
 function buildRegions(){
-  const rs=['all',...new Set(FIRMS.map(f=>getRegion(f.city)).sort())];
+  const rs=['all',...new Set(FIRMS.map(f=>getRegion(f)).sort())];
   const el=document.getElementById('region-btns'); el.innerHTML='';
   rs.forEach((r,i)=>{
     const b=document.createElement('button');
@@ -525,7 +581,7 @@ function buildRegions(){
 function setRegion(r,btn){
   document.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on'); F.region=r; F.cities.clear();
-  if(r!=='all') FIRMS.forEach(f=>{if(getRegion(f.city)===r)F.cities.add(f.city);});
+  if(r!=='all') FIRMS.forEach(f=>{if(getRegion(f)===r)F.cities.add(f.city);});
   buildCityList(); applyFilters();
 }
 function buildCityList(q){
@@ -545,10 +601,11 @@ function buildCityList(q){
 }
 function filterCityList(q){buildCityList(q);}
 function resetFilters(){
-  F={empMin:EMP_MIN_DEF,empMax:EMP_MAX_DEF,aumOn:false,aumMax:500,region:'all',
+  const curMax = +document.getElementById('emp-max').max || EMP_MAX_DEF;
+  F={empMin:1,empMax:curMax,aumOn:false,aumMax:500,region:'all',
      cities:new Set(),fetchFilter:'all',statuses:new Set(Object.keys(STATUS_LABELS))};
-  document.getElementById('emp-min').value=EMP_MIN_DEF; document.getElementById('emp-min-v').textContent=EMP_MIN_DEF;
-  document.getElementById('emp-max').value=EMP_MAX_DEF; document.getElementById('emp-max-v').textContent=EMP_MAX_DEF;
+  document.getElementById('emp-min').value=1; document.getElementById('emp-min-v').textContent=1;
+  document.getElementById('emp-max').value=curMax; document.getElementById('emp-max-v').textContent=curMax;
   document.getElementById('aum-tog').classList.remove('on'); document.getElementById('aum-ctrl').style.display='none';
   document.getElementById('aum-max').value=5; document.getElementById('aum-max-v').textContent='$500M';
   document.getElementById('name-search').value='';
