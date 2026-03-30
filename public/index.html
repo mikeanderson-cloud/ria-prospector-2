@@ -978,8 +978,7 @@ function exportProgress() {
 
   // Also trigger CSV download
   setTimeout(function() {
-    var csvBlob = new Blob([csvLines.join('
-')], {type: 'text/csv'});
+    var csvBlob = new Blob([csvLines.join('\n')], {type: 'text/csv'});
     var csvUrl = URL.createObjectURL(csvBlob);
     var a2 = document.createElement('a');
     a2.href = csvUrl;
@@ -1018,17 +1017,7 @@ function importProgress(input) {
       applyFilters();
       updStats();
 
-      alert('Progress restored!
-
-' +
-        incomingCount + ' firms imported
-' +
-        existingCount + ' firms were already tracked
-' +
-        mergedCount + ' total firms now tracked
-
-' +
-        'Exported: ' + (data.exportedAt ? data.exportedAt.slice(0,10) : 'unknown date'));
+      alert('Progress restored!\n\n' + incomingCount + ' firms imported\n' + existingCount + ' firms were already tracked\n' + mergedCount + ' total firms now tracked\n\nExported: ' + (data.exportedAt ? data.exportedAt.slice(0,10) : 'unknown date'));
     } catch(err) {
       alert('Could not import progress: ' + err.message);
     }
