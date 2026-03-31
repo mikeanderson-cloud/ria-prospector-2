@@ -1251,10 +1251,12 @@ window.addUser = addUser;
 window.deleteUser = deleteUser;
 window.applyFilters = applyFilters;
 
-// Wire up auth button (can't use onclick= in module scope)
-document.getElementById('auth-submit').addEventListener('click', doLogin);
-document.getElementById('auth-pin').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-document.getElementById('auth-username').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('auth-pin').focus(); });
+// Wire up auth button via DOMContentLoaded to ensure DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('auth-submit').addEventListener('click', doLogin);
+  document.getElementById('auth-pin').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('auth-username').addEventListener('keydown', function(e) { if (e.key === 'Enter') document.getElementById('auth-pin').focus(); });
+});
 
 // startLoad() is called by doLogin() after successful authentication
 </script>
