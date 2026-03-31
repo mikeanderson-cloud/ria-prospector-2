@@ -213,53 +213,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 <body>
 
 <!-- Firebase SDK -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyB6lg14cYTaVur9gpKHPeYwIZJ0cjyudd0",
-  authDomain: "the-fox-ria-prospector.firebaseapp.com",
-  projectId: "the-fox-ria-prospector",
-  storageBucket: "the-fox-ria-prospector.firebasestorage.app",
-  messagingSenderId: "626187613580",
-  appId: "1:626187613580:web:fc031f9596420e5084d2a9",
-  measurementId: "G-L496DK6WML"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// ── BUILT-IN USERS (username → hashed PIN) ──
-// PIN stored as SHA-256 hash. Admin = mike (PIN 0802)
-// SHA-256("0802") = computed below
-async function sha256(str) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-// User management in Firestore: collection("users") → doc(username) → {pinHash, isAdmin, createdAt}
-// Progress in Firestore: collection("progress") → doc(username) → {data: {...progress...}}
-
-window._fb = { db, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, sha256 };
-
-// Seed admin user if not exists
-async function seedAdmin() {
-  try {
-    const adminRef = doc(db, "users", "mike");
-    const snap = await getDoc(adminRef);
-    if (!snap.exists()) {
-      const hash = await sha256("0802");
-      await setDoc(adminRef, { pinHash: hash, isAdmin: true, displayName: "Mike", createdAt: new Date().toISOString() });
-    }
-  } catch(e) { console.warn("Could not seed admin:", e); }
-}
-seedAdmin();
-
-console.log("[RIA] Firebase initialized");
-window._fbReady = true;
-window.dispatchEvent(new Event("fbReady"));
-</script>
+<!-- Firebase loaded inline in main module script below -->
 
 <!-- Auth Screen -->
 <div id="auth-screen">
@@ -271,7 +225,7 @@ window.dispatchEvent(new Event("fbReady"));
     <input class="auth-inp" type="text" id="auth-username" placeholder="e.g. mike" autocomplete="username" autocapitalize="none">
     <label class="auth-lbl">PIN (4 digits)</label>
     <input class="auth-inp" type="password" id="auth-pin" placeholder="••••" maxlength="4" inputmode="numeric" autocomplete="current-password">
-    <button class="auth-btn" id="auth-submit" onclick="doLogin()">Sign In</button>
+    <button class="auth-btn" id="auth-submit">Sign In</button>
     <div class="auth-err" id="auth-err"></div>
     <div class="auth-sync" id="auth-sync-msg">Connecting to cloud sync…</div>
   </div>
@@ -404,7 +358,38 @@ window.dispatchEvent(new Event("fbReady"));
   </div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ── Firebase init ──
+const _fbApp = initializeApp({
+  apiKey: "AIzaSyB6lg14cYTaVur9gpKHPeYwIZJ0cjyudd0",
+  authDomain: "the-fox-ria-prospector.firebaseapp.com",
+  projectId: "the-fox-ria-prospector",
+  storageBucket: "the-fox-ria-prospector.firebasestorage.app",
+  messagingSenderId: "626187613580",
+  appId: "1:626187613580:web:fc031f9596420e5084d2a9"
+});
+const _db = getFirestore(_fbApp);
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// Seed admin user on first load
+(async () => {
+  try {
+    const adminRef = doc(_db, "users", "mike");
+    const snap = await getDoc(adminRef);
+    if (!snap.exists()) {
+      const hash = await sha256("0802");
+      await setDoc(adminRef, { pinHash: hash, isAdmin: true, displayName: "Mike", createdAt: new Date().toISOString() });
+    }
+  } catch(e) { console.warn("Could not seed admin:", e); }
+})();
+
 // ── All SEC calls go through /api/sec?path=... (Vercel serverless proxy) ──
 function secFetch(path, params) {
   const qs = params ? '&' + new URLSearchParams(params).toString() : '';
@@ -1034,16 +1019,7 @@ let CURRENT_USER = null; // { username, displayName, isAdmin }
 let _unsubProgress = null; // Firestore listener unsubscribe
 
 // Wait for Firebase to be ready
-function waitForFB(cb) {
-  if (window._fbReady) { cb(); return; }
-  window.addEventListener('fbReady', cb, { once: true });
-  // Fallback after 5s — allow offline use
-  setTimeout(() => {
-    if (!CURRENT_USER) {
-      document.getElementById('auth-sync-msg').textContent = 'Cloud sync unavailable — offline mode';
-    }
-  }, 5000);
-}
+// Firebase is ready immediately in module context
 
 async function doLogin() {
   const username = (document.getElementById('auth-username').value || '').trim().toLowerCase();
@@ -1055,8 +1031,8 @@ async function doLogin() {
   if (!/^\d{4}$/.test(pin)) { showAuthErr('PIN must be exactly 4 digits.'); return; }
   btn.disabled = true; btn.textContent = 'Signing in…';
   try {
-    const { db, doc, getDoc, sha256 } = window._fb;
-    const userRef = doc(db, 'users', username);
+    
+    const userRef = doc(_db, 'users', username);
     const snap = await getDoc(userRef);
     if (!snap.exists()) { showAuthErr('Username not found. Contact Mike to get access.'); btn.disabled=false; btn.textContent='Sign In'; return; }
     const userData = snap.data();
@@ -1094,9 +1070,6 @@ function showAuthErr(msg) {
   el.textContent = msg; el.style.display = 'block';
 }
 
-// Allow Enter key to submit
-document.getElementById('auth-pin').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-document.getElementById('auth-username').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('auth-pin').focus(); });
 
 // ── Cloud Sync ──
 function setSyncStatus(status) {
@@ -1107,8 +1080,8 @@ function setSyncStatus(status) {
 
 function initCloudSync() {
   if (!CURRENT_USER) return;
-  const { db, doc, onSnapshot } = window._fb;
-  const progressRef = doc(db, 'progress', CURRENT_USER.username);
+  
+  const progressRef = doc(_db, 'progress', CURRENT_USER.username);
   // Real-time listener — updates local state when Firestore changes
   _unsubProgress = onSnapshot(progressRef, (snap) => {
     if (snap.exists()) {
@@ -1132,8 +1105,8 @@ async function pushToCloud(progressData) {
   if (!CURRENT_USER) return;
   setSyncStatus('syncing');
   try {
-    const { db, doc, setDoc } = window._fb;
-    await setDoc(doc(db, 'progress', CURRENT_USER.username), { data: progressData, updatedAt: new Date().toISOString() });
+    
+    await setDoc(doc(_db, 'progress', CURRENT_USER.username), { data: progressData, updatedAt: new Date().toISOString() });
     setSyncStatus('synced');
   } catch(e) { console.warn('Cloud push failed:', e); setSyncStatus('error'); }
 }
@@ -1170,12 +1143,12 @@ function closeAdmin() {
 }
 
 async function loadAdminData() {
-  const { db, collection, getDocs, doc, getDoc } = window._fb;
+  
   // Load users
   const userListEl = document.getElementById('ap-user-list');
   userListEl.innerHTML = 'Loading…';
   try {
-    const usersSnap = await getDocs(collection(db, 'users'));
+    const usersSnap = await getDocs(collection(_db, 'users'));
     userListEl.innerHTML = '';
     usersSnap.forEach(d => {
       const u = d.data();
@@ -1191,7 +1164,7 @@ async function loadAdminData() {
   const summaryEl = document.getElementById('ap-progress-summary');
   summaryEl.innerHTML = 'Loading…';
   try {
-    const progSnap = await getDocs(collection(db, 'progress'));
+    const progSnap = await getDocs(collection(_db, 'progress'));
     const rows = [];
     progSnap.forEach(d => {
       const data = d.data().data || {};
@@ -1219,8 +1192,8 @@ async function addUser() {
   if (!/^\d{4}$/.test(pin)) { msgEl.textContent = 'PIN must be exactly 4 digits.'; return; }
   msgEl.textContent = 'Adding…';
   try {
-    const { db, doc, getDoc, setDoc, sha256 } = window._fb;
-    const ref = doc(db, 'users', username);
+    
+    const ref = doc(_db, 'users', username);
     const snap = await getDoc(ref);
     if (snap.exists()) { msgEl.textContent = 'Username already exists.'; return; }
     const hash = await sha256(pin);
@@ -1234,13 +1207,38 @@ async function addUser() {
 
 async function deleteUser(username) {
   if (!confirm('Remove user "' + username + '"? This cannot be undone.')) return;
-  const { db, doc, deleteDoc } = window._fb;
+  
   try {
-    await deleteDoc(doc(db, 'users', username));
-    await deleteDoc(doc(db, 'progress', username));
+    await deleteDoc(doc(_db, 'users', username));
+    await deleteDoc(doc(_db, 'progress', username));
     await loadAdminData();
   } catch(e) { alert('Error removing user: ' + e.message); }
 }
+
+// ── Expose functions to window for inline HTML handlers ──
+window.doLogin = doLogin;
+window.loadEmbedded = loadEmbedded;
+window.handleCSV = handleCSV;
+window.exportProgress = exportProgress;
+window.importProgress = importProgress;
+window.onEmpMin = onEmpMin;
+window.onEmpMax = onEmpMax;
+window.onAUMMax = onAUMMax;
+window.toggleAUM = toggleAUM;
+window.toggleSF = toggleSF;
+window.setFF = setFF;
+window.filterCityList = filterCityList;
+window.resetFilters = resetFilters;
+window.openAdmin = openAdmin;
+window.closeAdmin = closeAdmin;
+window.addUser = addUser;
+window.deleteUser = deleteUser;
+window.applyFilters = applyFilters;
+
+// Wire up auth button (can't use onclick= in module scope)
+document.getElementById('auth-submit').addEventListener('click', doLogin);
+document.getElementById('auth-pin').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('auth-username').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('auth-pin').focus(); });
 
 // startLoad() is called by doLogin() after successful authentication
 </script>
