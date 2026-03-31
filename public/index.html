@@ -358,12 +358,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   </div>
 </div>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
 // ── Firebase init ──
-const _fbApp = initializeApp({
+const _fbApp = firebase.initializeApp({
   apiKey: "AIzaSyB6lg14cYTaVur9gpKHPeYwIZJ0cjyudd0",
   authDomain: "the-fox-ria-prospector.firebaseapp.com",
   projectId: "the-fox-ria-prospector",
@@ -371,24 +370,41 @@ const _fbApp = initializeApp({
   messagingSenderId: "626187613580",
   appId: "1:626187613580:web:fc031f9596420e5084d2a9"
 });
-const _db = getFirestore(_fbApp);
+const _firestore = firebase.firestore();
+
+// Compat API wrappers to match modular API calls used in code
+function doc(db, ...pathSegments) {
+  let ref = db;
+  for (let i = 0; i < pathSegments.length; i += 2) {
+    ref = ref.collection(pathSegments[i]).doc(pathSegments[i+1]);
+  }
+  return ref;
+}
+async function getDoc(ref) {
+  const snap = await ref.get();
+  return { exists: () => snap.exists, data: () => snap.data(), id: snap.id };
+}
+async function setDoc(ref, data) { return ref.set(data); }
+async function deleteDoc(ref) { return ref.delete(); }
+function collection(db, name) { return db.collection(name); }
+async function getDocs(ref) {
+  const snap = await ref.get();
+  const docs = [];
+  snap.forEach(d => docs.push({ id: d.id, data: () => d.data() }));
+  return { forEach: cb => docs.forEach(cb) };
+}
+function onSnapshot(ref, cb, errCb) { return ref.onSnapshot(snap => {
+  cb({ exists: () => snap.exists, data: () => snap.data() });
+}, errCb); }
+
+const _db = _firestore;
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// Seed admin user on first load
-(async () => {
-  try {
-    const adminRef = doc(_db, "users", "mike");
-    const snap = await getDoc(adminRef);
-    if (!snap.exists()) {
-      const hash = await sha256("0802");
-      await setDoc(adminRef, { pinHash: hash, isAdmin: true, displayName: "Mike", createdAt: new Date().toISOString() });
-    }
-  } catch(e) { console.warn("Could not seed admin:", e); }
-})();
+// Admin seeding happens in doLogin() on first successful login
 
 // ── All SEC calls go through /api/sec?path=... (Vercel serverless proxy) ──
 function secFetch(path, params) {
@@ -1025,45 +1041,45 @@ async function doLogin() {
   const username = (document.getElementById('auth-username').value || '').trim().toLowerCase();
   const pin = (document.getElementById('auth-pin').value || '').trim();
   const btn = document.getElementById('auth-submit');
-  const errEl = document.getElementById('auth-err');
-  errEl.style.display = 'none';
+  document.getElementById('auth-err').style.display = 'none';
   if (!username) { showAuthErr('Please enter your username.'); return; }
   if (!/^\d{4}$/.test(pin)) { showAuthErr('PIN must be exactly 4 digits.'); return; }
-  btn.disabled = true; btn.textContent = 'Signing in…';
+  btn.disabled = true; btn.textContent = 'Signing in\u2026';
   try {
-    
+    const hash = await sha256(pin);
     const userRef = doc(_db, 'users', username);
     const snap = await getDoc(userRef);
-    if (!snap.exists()) { showAuthErr('Username not found. Contact Mike to get access.'); btn.disabled=false; btn.textContent='Sign In'; return; }
-    const userData = snap.data();
-    const hash = await sha256(pin);
-    if (hash !== userData.pinHash) { showAuthErr('Incorrect PIN. Try again.'); btn.disabled=false; btn.textContent='Sign In'; return; }
-    CURRENT_USER = { username, displayName: userData.displayName || username, isAdmin: !!userData.isAdmin };
+    if (!snap.exists() && username === 'mike') {
+      await setDoc(doc(_db, 'users', 'mike'), { pinHash: hash, isAdmin: true, displayName: 'Mike', createdAt: new Date().toISOString() });
+      CURRENT_USER = { username: 'mike', displayName: 'Mike', isAdmin: true };
+    } else if (!snap.exists()) {
+      showAuthErr('Username not found. Contact Mike to get access.'); btn.disabled=false; btn.textContent='Sign In'; return;
+    } else {
+      const userData = snap.data();
+      if (hash !== userData.pinHash) { showAuthErr('Incorrect PIN.'); btn.disabled=false; btn.textContent='Sign In'; return; }
+      CURRENT_USER = { username, displayName: userData.displayName || username, isAdmin: !!userData.isAdmin };
+    }
     document.getElementById('auth-screen').style.display = 'none';
     initCloudSync();
-    // Show admin button if admin
+    const hright = document.querySelector('.hright');
     if (CURRENT_USER.isAdmin) {
-      const hright = document.querySelector('.hright');
       const adminBtn = document.createElement('button');
-      adminBtn.className = 'hbtn';
-      adminBtn.textContent = '⚙ Admin';
+      adminBtn.className = 'hbtn'; adminBtn.textContent = '\u2699 Admin';
       adminBtn.onclick = openAdmin;
       hright.insertBefore(adminBtn, hright.firstChild);
     }
-    // Show user badge
-    const hright = document.querySelector('.hright');
     const userBadge = document.createElement('span');
-    userBadge.className = 'hbadge';
-    userBadge.id = 'user-badge';
+    userBadge.className = 'hbadge'; userBadge.id = 'user-badge';
     userBadge.innerHTML = '<span class="sync-dot synced" id="sync-dot"></span>' + CURRENT_USER.displayName;
     hright.insertBefore(userBadge, hright.firstChild);
     startLoad();
   } catch(e) {
     console.error('Login error:', e);
-    showAuthErr('Connection error. Check your internet and try again.');
+    showAuthErr('Connection error: ' + e.message);
     btn.disabled=false; btn.textContent='Sign In';
   }
 }
+
 
 function showAuthErr(msg) {
   const el = document.getElementById('auth-err');
