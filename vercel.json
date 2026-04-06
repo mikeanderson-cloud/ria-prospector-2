@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/sec(.*)", "destination": "/api/sec" }
+    { "source": "/api/sec(.*)", "destination": "/api/sec" },
+    { "source": "/api/scrape(.*)", "destination": "/api/scrape" }
   ]
 }
