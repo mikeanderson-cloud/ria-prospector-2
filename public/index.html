@@ -473,7 +473,8 @@ function parseCSV(text) {
   var iEmp   = colExact('5b(1)', ['5a', 'employees']);
   var iPhone = colExact('main office telephone number', ['main office telephone', 'phone', 'telephone']);
   var iAUM   = colExact('5f(2)(a)', ['total regulatory assets', 'aum']);
-  var iAdv   = colExact('adv link', []);  // exact only — prevent 'adv' matching 'advisers'
+  var iAdv     = colExact('adv link', []);  // exact only — prevent 'adv' matching 'advisers'
+  var iWebsite = col(['website address', 'website', 'web address', 'url']);
 
   console.log('[RIA] Column detection: name='+iName+' crd='+iCRD+' city='+iCity+' state='+iState+' zip='+iZip+' emp='+iEmp);
   if (iName === -1) throw new Error('Cannot find a Firm Name column. Check CSV has headers in row 1.');
@@ -511,8 +512,10 @@ function parseCSV(text) {
     var aumRaw = iAUM !== -1 ? (row[iAUM] || '').replace(/,/g, '').trim() : '';
     var aum = aumRaw && !isNaN(aumRaw) ? Math.round(parseFloat(aumRaw) / 1000000) : null;
 
+    var website = iWebsite !== -1 ? (row[iWebsite] || '').trim() : '';
+    if (website && website.indexOf('http') !== 0 && website.length > 3) website = 'https://' + website;
     firms.push({ crd: crd, name: name, city: city, state: state,
-                 zip: zip5, employees: emp, phone: phone, adv: adv, aum: aum });
+                 zip: zip5, employees: emp, phone: phone, adv: adv, aum: aum, website: website });
   }
 
   return firms;
@@ -731,18 +734,19 @@ function buildCard(f){
   const cbi=document.createElement('div'); cbi.className='cbi';
   const col1=document.createElement('div'); col1.className='col';
   const h1=document.createElement('div'); h1.className='col-h'; h1.textContent='Firm info'; col1.appendChild(h1);
-  const mkRow=(lbl,val,isLink)=>{
+  const mkRow=(lbl,val,isLink,href,linkTxt)=>{
     const row=document.createElement('div'); row.className='crow';
     const l=document.createElement('span'); l.className='clbl'; l.textContent=lbl;
     const v=document.createElement('span'); v.className='cval';
-    if(isLink){const a=document.createElement('a');a.href=val;a.target='_blank';a.textContent='SEC filing ↗';v.appendChild(a);}
+    if(isLink||href){const a=document.createElement('a');a.href=href||val;a.target='_blank';a.textContent=linkTxt||(isLink?'SEC filing ↗':val);v.appendChild(a);}
     else v.textContent=val;
     row.appendChild(l); row.appendChild(v); return row;
   };
   col1.appendChild(mkRow('City',f.city));
   col1.appendChild(mkRow('Emp',String(f.employees)));
   const aumRow=mkRow('AUM',aumTxt); aumRow.querySelector('.cval').id='ad-'+f.crd; col1.appendChild(aumRow);
-  col1.appendChild(mkRow('ADV',f.adv,true)); cbi.appendChild(col1);
+  col1.appendChild(mkRow('ADV',f.adv,true));
+  if(f.website){col1.appendChild(mkRow('Web',f.website,false,f.website,'Visit website ↗'));} cbi.appendChild(col1);
   const col2=document.createElement('div'); col2.className='col';
   const h2=document.createElement('div'); h2.className='col-h'; h2.textContent='Find advisors at this firm'; col2.appendChild(h2);
   const advEl=document.createElement('div'); advEl.id='adv-'+f.crd;
@@ -783,13 +787,24 @@ function buildCard(f){
   noteSave.addEventListener('click',()=>{saveNote(f.crd,noteInp.value);noteSave.textContent='Saved ✓';setTimeout(()=>noteSave.textContent='Save note',1500);});
   noteRow.appendChild(noteInp); noteRow.appendChild(noteSave); progSec.appendChild(noteRow); cb.appendChild(progSec);
   const foot=document.createElement('div'); foot.className='foot';
-  const flbl=document.createElement('span'); flbl.className='flbl'; flbl.textContent='LinkedIn:';
-  const firmLi=document.createElement('a'); firmLi.className='lbtn firm'; firmLi.target='_blank'; firmLi.textContent='Find people at firm ↗';
-  firmLi.href='https://www.linkedin.com/search/results/people/?keywords='+encodeURIComponent('"'+cleanFirmName(f.name)+'"')+'&origin=GLOBAL_SEARCH_HEADER';
-  const coLnk=document.createElement('a'); coLnk.className='lbtn li'; coLnk.target='_blank'; coLnk.textContent='Company page ↗';
-  coLnk.href='https://www.linkedin.com/search/results/companies/?keywords='+encodeURIComponent(cleanFirmName(f.name))+'&origin=GLOBAL_SEARCH_HEADER';
-  const advLnk=document.createElement('a'); advLnk.className='lbtn adv'; advLnk.target='_blank'; advLnk.textContent='SEC ADV ↗'; advLnk.href=f.adv;
-  foot.appendChild(flbl); foot.appendChild(firmLi); foot.appendChild(coLnk); foot.appendChild(advLnk); cb.appendChild(foot);
+  if(f.website){
+    const wlbl=document.createElement('span'); wlbl.className='flbl'; wlbl.textContent='Website:';
+    const wLnk=document.createElement('a'); wLnk.className='lbtn li'; wLnk.target='_blank'; wLnk.textContent='Visit website \u2197'; wLnk.href=f.website;
+    const emailBtn=document.createElement('button'); emailBtn.className='lbtn email-btn'; emailBtn.id='email-btn-'+f.crd;
+    emailBtn.textContent='Find email'; emailBtn.style.cssText='cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:inherit;font-size:11px;font-weight:500;padding:4px 10px;border-radius:5px;transition:all .15s;';
+    emailBtn.addEventListener('click',()=>findEmail(f.crd,f.website));
+    emailBtn.addEventListener('mouseover',()=>{emailBtn.style.borderColor='#F8C02B';emailBtn.style.color='#F8C02B';});
+    emailBtn.addEventListener('mouseout',()=>{emailBtn.style.borderColor='';emailBtn.style.color='';});
+    foot.appendChild(wlbl); foot.appendChild(wLnk); foot.appendChild(emailBtn);
+  } else {
+    const nwlbl=document.createElement('span'); nwlbl.className='flbl'; nwlbl.style.cssText='color:var(--hint);font-size:11px';
+    nwlbl.textContent='No website on file \u2014 ';
+    const liLnk=document.createElement('a'); liLnk.className='lbtn li'; liLnk.target='_blank'; liLnk.textContent='Search LinkedIn \u2197';
+    liLnk.href='https://www.linkedin.com/search/results/people/?keywords='+encodeURIComponent('"'+cleanFirmName(f.name)+'"')+'&origin=GLOBAL_SEARCH_HEADER';
+    foot.appendChild(nwlbl); foot.appendChild(liLnk);
+  }
+  const emailResult=document.createElement('div'); emailResult.className='email-result'; emailResult.id='email-result-'+f.crd; emailResult.style.cssText='padding:0 16px 12px;font-size:12px;';
+  cb.appendChild(foot); cb.appendChild(emailResult);
   card.appendChild(cb); return card;
 }
 
@@ -903,6 +918,79 @@ function importProgress(input) {
     input.value = ''; // reset so same file can be re-imported
   };
   reader.readAsText(file);
+}
+
+
+async function findEmail(crd, website) {
+  var btn = document.getElementById('email-btn-'+crd);
+  var resultEl = document.getElementById('email-result-'+crd);
+  if(!btn || !resultEl) return;
+
+  // Check localStorage cache first
+  var cached = loadEmails();
+  if(cached[crd] && cached[crd].emails && cached[crd].emails.length) {
+    showEmailResult(crd, cached[crd].emails, cached[crd].foundAt);
+    return;
+  }
+
+  btn.textContent = 'Searching...'; btn.disabled = true;
+  try {
+    var resp = await fetch('/api/scrape?url='+encodeURIComponent(website)+'&crd='+encodeURIComponent(crd));
+    var data = await resp.json();
+    if(data.emails && data.emails.length) {
+      var entry = {emails: data.emails, foundAt: new Date().toISOString(), source:'scrape'};
+      var emailCache = loadEmails(); emailCache[crd] = entry; saveEmails(emailCache);
+      showEmailResult(crd, data.emails, entry.foundAt);
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--muted)">No email found on website. Try LinkedIn search above.</span>';
+      btn.textContent = 'Find email'; btn.disabled = false;
+    }
+  } catch(e) {
+    resultEl.innerHTML = '<span style="color:var(--red)">Scrape failed: '+e.message+'</span>';
+    btn.textContent = 'Find email'; btn.disabled = false;
+  }
+}
+
+function showEmailResult(crd, emails, foundAt) {
+  var btn = document.getElementById('email-btn-'+crd);
+  var resultEl = document.getElementById('email-result-'+crd);
+  if(!resultEl) return;
+  var dateStr = foundAt ? new Date(foundAt).toLocaleDateString() : '';
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px';
+  emails.forEach(function(email) {
+    var chip = document.createElement('span');
+    chip.style.cssText = 'background:var(--blue-l);border:1px solid var(--blue-m);border-radius:4px;padding:3px 8px;font-family:monospace;font-size:12px;color:var(--text)';
+    chip.textContent = email;
+    var copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    copyBtn.style.cssText = 'cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:11px;padding:2px 6px;border-radius:4px;font-family:inherit';
+    (function(e, b){ b.addEventListener('click', function(){ navigator.clipboard.writeText(e).then(function(){ b.textContent='Copied!'; setTimeout(function(){ b.textContent='Copy'; }, 1500); }); }); })(email, copyBtn);
+    wrap.appendChild(chip); wrap.appendChild(copyBtn);
+  });
+  if(dateStr){ var dt=document.createElement('span'); dt.style.cssText='color:var(--hint);font-size:11px'; dt.textContent='Found '+dateStr; wrap.appendChild(dt); }
+  var reBtn = document.createElement('button');
+  reBtn.textContent = 'Rescrape';
+  reBtn.style.cssText = 'cursor:pointer;border:none;background:none;color:var(--hint);font-size:11px;padding:2px 4px;font-family:inherit';
+  reBtn.addEventListener('click', function(){ rescrapeEmail(crd); });
+  wrap.appendChild(reBtn);
+  resultEl.innerHTML = ''; resultEl.appendChild(wrap);
+  if(btn){ btn.textContent = 'Email found'; btn.disabled = false; }
+}
+
+function rescrapeEmail(crd) {
+  var cached = loadEmails(); delete cached[crd]; saveEmails(cached);
+  var resultEl = document.getElementById('email-result-'+crd);
+  if(resultEl) resultEl.innerHTML = '';
+  var firm = FIRMS.find(function(f){return f.crd===crd;});
+  if(firm && firm.website) findEmail(crd, firm.website);
+}
+
+function loadEmails() {
+  try { return JSON.parse(localStorage.getItem('ria_emails')||'{}'); } catch(e){return{};}
+}
+function saveEmails(data) {
+  try { localStorage.setItem('ria_emails', JSON.stringify(data)); } catch(e){}
 }
 
 startLoad();
