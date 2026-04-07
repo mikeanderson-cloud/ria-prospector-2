@@ -4,24 +4,49 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  const { url, crd } = req.query;
-  if (!url || !crd) {
-    res.status(400).json({ error: 'Missing required parameters: url, crd' });
+  const { url, crd, name, city } = req.query;
+  if (!crd) {
+    res.status(400).json({ error: 'Missing required parameter: crd' });
     return;
   }
 
-  const EMAIL_REGEX = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
-  const JUNK_DOMAINS = [
-    'sentry.io','example.com','domain.com','youremail','wixpress','squarespace',
-    'wordpress','latofonts','fontawesome','googleapis','gstatic','adobe',
-    'cloudflare','schema.org','noreply','no-reply','placeholder','test@',
-    'w3.org','sampleemail','yourname','company.com','emailaddress'
+  const BLOCKED_DOMAINS = [
+    'linkedin.com','facebook.com','twitter.com','instagram.com','youtube.com',
+    'google.com','bing.com','yahoo.com','duckduckgo.com',
+    'wix.com','wixsite.com','squarespace.com','weebly.com','godaddy.com',
+    'wordpress.com','blogger.com','tumblr.com',
+    'sec.gov','finra.org','brokercheck.finra.org',
+    'yelp.com','bbb.org','manta.com','yellowpages.com','mapquest.com',
+    'angieslist.com','thumbtack.com','bark.com','expertise.com',
   ];
-  // Common words that are NOT names — stop name extraction before these
-  const NOT_NAME_WORDS = /\b(email|contact|phone|fax|address|office|suite|floor|street|ave|blvd|rd|st|at|or|and|for|the|our|your|please|send|reach|us|me|him|her|them|manager|director|advisor|president|ceo|cfo|coo|partner|associate|analyst|assistant|receptionist|info|team|staff|support|services|wealth|capital|financial|investment|management)\b/i;
+
+  const JUNK_EMAIL_DOMAINS = [
+    'sentry.io','example.com','domain.com','wixpress','fontawesome',
+    'googleapis','gstatic','adobe','cloudflare','schema.org',
+    'noreply','no-reply','placeholder','w3.org','sampleemail',
+    'latofonts','typekit','linkedin','facebook','twitter','instagram',
+    'lingying','jubao','yourname','company.com','emailaddress',
+  ];
+
+  const EMAIL_REGEX = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
+  const NOT_NAME = /\b(email|contact|phone|fax|address|office|suite|floor|street|ave|blvd|at|or|and|for|the|our|your|please|send|reach|us|me|info|team|staff|support|services|wealth|capital|financial|investment|management|advisor|director|president|partner|associate|analyst|assistant|manager)\b/i;
+
+  function isBlockedDomain(urlStr) {
+    try {
+      const host = new URL(urlStr).hostname.toLowerCase().replace(/^www\./, '');
+      return BLOCKED_DOMAINS.some(d => host === d || host.endsWith('.' + d));
+    } catch { return true; }
+  }
+
+  function isJunkEmail(email) {
+    const d = email.split('@')[1]?.toLowerCase() || '';
+    return JUNK_EMAIL_DOMAINS.some(j => d.includes(j) || email.toLowerCase().includes(j))
+      || email.includes('..')
+      || email.length > 80
+      || !d.includes('.');
+  }
 
   function extractEmailsWithNames(html) {
-    // Strip scripts, styles, and HTML comments
     html = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -34,67 +59,40 @@ export default async function handler(req, res) {
 
     while ((m = EMAIL_REGEX.exec(html)) !== null) {
       const email = m[0];
-      const domain = email.split('@')[1]?.toLowerCase() || '';
-
-      // Filter junk
-      if (JUNK_DOMAINS.some(j => domain.includes(j) || email.toLowerCase().includes(j))) continue;
-      if (email.includes('..') || email.length > 80 || !domain.includes('.')) continue;
+      if (isJunkEmail(email)) continue;
       if (seen.has(email.toLowerCase())) continue;
       seen.add(email.toLowerCase());
 
-      // Extract surrounding context (~400 chars each side)
       const ctxStart = Math.max(0, m.index - 400);
       const ctxEnd = Math.min(html.length, m.index + email.length + 400);
-      const ctx = html.slice(ctxStart, ctxEnd);
-
-      // Strip tags → plain text
-      const plain = ctx
+      const plain = html.slice(ctxStart, ctxEnd)
         .replace(/<[^>]+>/g, ' ')
         .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&[a-z]+;/gi, ' ')
         .replace(/\s+/g, ' ').trim();
 
       let name = null;
       const emailIdx = plain.indexOf(email);
-
       if (emailIdx !== -1) {
-        // --- Try: name immediately BEFORE email in plain text ---
         const before = plain.slice(Math.max(0, emailIdx - 80), emailIdx);
-        // Match last occurrence of "Firstname Lastname" (2-4 Title Case words, no junk words)
-        const beforeMatch = before.match(/([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\s*[:\-,]?\s*$/);
-        if (beforeMatch) {
-          const candidate = beforeMatch[1];
-          // Reject if it contains non-name words
-          if (!NOT_NAME_WORDS.test(candidate)) {
-            name = candidate;
-          }
-        }
+        const bm = before.match(/([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\s*[:\-,]?\s*$/);
+        if (bm && !NOT_NAME.test(bm[1])) name = bm[1];
 
-        // --- Try: name immediately AFTER email in plain text ---
         if (!name) {
           const after = plain.slice(emailIdx + email.length, emailIdx + email.length + 80);
-          const afterMatch = after.match(/^[\s,\-–|]*([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})/);
-          if (afterMatch) {
-            const candidate = afterMatch[1];
-            if (!NOT_NAME_WORDS.test(candidate)) {
-              name = candidate;
-            }
-          }
+          const am = after.match(/^[\s,\-–|]*([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})/);
+          if (am && !NOT_NAME.test(am[1])) name = am[1];
         }
       }
 
-      // --- Fallback: parse name from email local part (john.smith@ → John Smith) ---
       if (!name) {
-        const localPart = email.split('@')[0];
-        const parts = localPart.split(/[._\-]/).filter(p => p.length > 1 && /^[a-z]+$/i.test(p) && !NOT_NAME_WORDS.test(p));
-        if (parts.length >= 2) {
-          // Looks like firstname.lastname format
+        const parts = email.split('@')[0].split(/[._\-]/)
+          .filter(p => p.length > 1 && /^[a-z]+$/i.test(p) && !NOT_NAME.test(p));
+        if (parts.length >= 2)
           name = parts.slice(0, 2).map(p => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(' ');
-        }
       }
 
       results.push({ email, name: name || null });
     }
-
     return results;
   }
 
@@ -104,6 +102,7 @@ export default async function handler(req, res) {
     try {
       const r = await fetch(pageUrl, {
         signal: controller.signal,
+        redirect: 'follow',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -112,54 +111,127 @@ export default async function handler(req, res) {
       });
       clearTimeout(timer);
       if (!r.ok) return null;
+      if (isBlockedDomain(r.url)) return null; // redirected to blocked domain
       return await r.text();
     } catch { clearTimeout(timer); return null; }
   }
 
-  // Normalize URL
-  let websiteUrl = url;
-  if (!websiteUrl.startsWith('http')) websiteUrl = 'https://' + websiteUrl;
+  // Search DuckDuckGo for the firm's real website
+  async function findWebsiteViaDDG(firmName, firmCity) {
+    const query = `"${firmName}" ${firmCity} financial advisor`;
+    const ddgUrl = 'https://lite.duckduckgo.com/lite/?' + new URLSearchParams({ q: query });
+    try {
+      const html = await fetchPage(ddgUrl, 6000);
+      if (!html) return null;
 
-  let origin;
-  try { origin = new URL(websiteUrl).origin; }
-  catch { res.status(400).json({ error: 'Invalid URL', url }); return; }
+      // Extract result URLs from DDG lite HTML
+      const linkMatches = [...html.matchAll(/href="(https?:\/\/[^"&]+)"/g)];
+      const candidates = linkMatches
+        .map(m => m[1])
+        .filter(u => {
+          try {
+            const host = new URL(u).hostname.toLowerCase();
+            return !isBlockedDomain(u)
+              && !host.includes('duckduckgo')
+              && !host.includes('duck.com');
+          } catch { return false; }
+        });
 
-  // Try contact/about pages first, then homepage
-  const pagesToTry = [
-    origin + '/contact',
-    origin + '/contact-us',
-    origin + '/about',
-    origin + '/about-us',
-    websiteUrl,
-    origin,
-  ];
+      // Return the first non-blocked result
+      return candidates[0] || null;
+    } catch { return null; }
+  }
 
-  const allContacts = [];
-  const seenEmails = new Set();
+  // Scrape a website for emails across multiple pages
+  async function scrapeWebsiteForEmails(websiteUrl) {
+    let origin;
+    try { origin = new URL(websiteUrl).origin; } catch { return []; }
 
-  for (const pageUrl of pagesToTry) {
-    const html = await fetchPage(pageUrl);
-    if (html) {
-      const found = extractEmailsWithNames(html);
-      for (const contact of found) {
-        if (!seenEmails.has(contact.email.toLowerCase())) {
-          seenEmails.add(contact.email.toLowerCase());
-          allContacts.push(contact);
+    const pagesToTry = [
+      origin + '/contact',
+      origin + '/contact-us',
+      origin + '/about',
+      origin + '/about-us',
+      websiteUrl,
+      origin,
+    ];
+
+    const allContacts = [];
+    const seenEmails = new Set();
+
+    for (const pageUrl of pagesToTry) {
+      const html = await fetchPage(pageUrl);
+      if (html) {
+        for (const c of extractEmailsWithNames(html)) {
+          if (!seenEmails.has(c.email.toLowerCase())) {
+            seenEmails.add(c.email.toLowerCase());
+            allContacts.push(c);
+          }
         }
+        if (allContacts.length >= 5) break;
       }
-      if (allContacts.length >= 5) break;
+    }
+    return allContacts;
+  }
+
+  // --- Main logic ---
+
+  // Step 1: Determine the website to scrape
+  let websiteUrl = url && url.startsWith('http') ? url : null;
+  let websiteSource = 'csv';
+
+  // If no URL provided, or URL is a blocked/social domain, search DDG
+  if (!websiteUrl || isBlockedDomain(websiteUrl)) {
+    if (name && city) {
+      console.log('[scrape] No usable URL, searching DDG for:', name, city);
+      websiteUrl = await findWebsiteViaDDG(name, city);
+      websiteSource = 'ddg';
+    }
+  }
+
+  if (!websiteUrl) {
+    return res.status(200).json({
+      success: false, contacts: [], emails: [],
+      error: 'Could not find a website for this firm', crd,
+      websiteSource: 'none'
+    });
+  }
+
+  // Step 2: Scrape the website
+  const contacts = await scrapeWebsiteForEmails(websiteUrl);
+
+  // Step 3: If CSV website had no emails, try DDG as fallback
+  if (contacts.length === 0 && websiteSource === 'csv' && name && city) {
+    console.log('[scrape] No emails on CSV website, trying DDG fallback');
+    const ddgUrl = await findWebsiteViaDDG(name, city);
+    if (ddgUrl && ddgUrl !== websiteUrl) {
+      const ddgContacts = await scrapeWebsiteForEmails(ddgUrl);
+      if (ddgContacts.length > 0) {
+        return res.status(200).json({
+          success: true,
+          contacts: ddgContacts,
+          emails: ddgContacts.map(c => c.email),
+          source: 'scrape',
+          websiteSource: 'ddg-fallback',
+          websiteFound: ddgUrl,
+          crd, url: ddgUrl,
+          scrapedAt: new Date().toISOString(),
+          count: ddgContacts.length
+        });
+      }
     }
   }
 
   res.status(200).json({
     success: true,
-    contacts: allContacts,
-    // Legacy field for backwards compat
-    emails: allContacts.map(c => c.email),
+    contacts,
+    emails: contacts.map(c => c.email),
     source: 'scrape',
+    websiteSource,
+    websiteFound: websiteUrl,
     crd,
     url: websiteUrl,
     scrapedAt: new Date().toISOString(),
-    count: allContacts.length
+    count: contacts.length
   });
 }
