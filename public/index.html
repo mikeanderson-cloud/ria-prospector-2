@@ -940,6 +940,10 @@ async function batchScrapeEmails() {
   var btn = document.getElementById('email-btn-'+crd);
   var resultEl = document.getElementById('email-result-'+crd);
   if(!btn || !resultEl) return;
+  // Normalize malformed URLs from CSV (e.g. http// -> http://)
+  if (website && website.startsWith('https//')) website = website.replace('https//', 'https://');
+  else if (website && website.startsWith('http//')) website = website.replace('http//', 'http://');
+  else if (website && website.length > 0 && !website.startsWith('http')) website = 'https://' + website;
 
   // Check localStorage cache first
   var cached = loadEmails();
