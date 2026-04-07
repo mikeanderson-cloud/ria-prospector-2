@@ -46,7 +46,8 @@ export default async function handler(req, res) {
     return JUNK_EMAIL_DOMAINS.some(j => d.includes(j) || email.toLowerCase().includes(j))
       || email.includes('..')
       || email.length > 80
-      || !d.includes('.');
+      || !d.includes('.')
+          || /\.(png|jpg|jpeg|gif|svg|webp|ico|pdf|zip|css|js|woff|ttf|eot)$/i.test(d);
   }
 
   function extractEmailsWithNames(html) {
