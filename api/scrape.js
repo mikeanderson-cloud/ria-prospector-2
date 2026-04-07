@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  const { url, crd, name, city } = req.query;
+  let { url, crd, name, city } = req.query;
   if (!crd) {
     res.status(400).json({ error: 'Missing required parameter: crd' });
     return;
