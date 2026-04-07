@@ -926,9 +926,19 @@ async function findEmail(crd, website) {
 
   // Check localStorage cache first
   var cached = loadEmails();
-  if(cached[crd] && (cached[crd].contacts || cached[crd].emails)) {
-    var cachedContacts = cached[crd].contacts || (cached[crd].emails||[]).map(function(e){return{email:e,name:null};});
+  if(cached[crd]) {
+    // Normalise old format (emails array) and new format (contacts array)
+    var cachedContacts = cached[crd].contacts
+      || (cached[crd].emails||[]).map(function(e){return{email:e,name:null};});
+    // If old cache had latofonts junk, clear it and re-scrape
+    var junkDomains = ['latofonts','fontawesome','sentry.io','noreply','no-reply','placeholder'];
+    cachedContacts = cachedContacts.filter(function(c){
+      var d = (c.email||'').split('@')[1]||'';
+      return !junkDomains.some(function(j){return d.includes(j);});
+    });
     if(cachedContacts.length) { showEmailResult(crd, cachedContacts, cached[crd].foundAt); return; }
+    // Cache exists but empty or all junk — fall through to re-scrape
+    delete cached[crd]; saveEmails(cached);
   }
 
   btn.textContent = 'Searching...'; btn.disabled = true;
