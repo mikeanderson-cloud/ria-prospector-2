@@ -10,6 +10,8 @@ export default async function handler(req, res) {
     return;
   }
 
+  const BRAVE_API_KEY = process.env.BRAVE_API_KEY;
+
   const BLOCKED_DOMAINS = [
     'linkedin.com','facebook.com','twitter.com','instagram.com','youtube.com',
     'google.com','bing.com','yahoo.com','duckduckgo.com',
@@ -17,7 +19,8 @@ export default async function handler(req, res) {
     'wordpress.com','blogger.com','tumblr.com',
     'sec.gov','finra.org','brokercheck.finra.org',
     'yelp.com','bbb.org','manta.com','yellowpages.com','mapquest.com',
-    'angieslist.com','thumbtack.com','bark.com','expertise.com',
+    'angieslist.com','thumbtack.com','bark.com','expertise.com','smartasset.com',
+    'advisoryhq.com','wealthminder.com','napfa.org','cfp.net',
   ];
 
   const JUNK_EMAIL_DOMAINS = [
@@ -111,39 +114,48 @@ export default async function handler(req, res) {
       });
       clearTimeout(timer);
       if (!r.ok) return null;
-      if (isBlockedDomain(r.url)) return null; // redirected to blocked domain
+      if (isBlockedDomain(r.url)) return null;
       return await r.text();
     } catch { clearTimeout(timer); return null; }
   }
 
-  // Search DuckDuckGo for the firm's real website
-  async function findWebsiteViaDDG(firmName, firmCity) {
+  // Search Brave for the firm's real website
+  async function findWebsiteViaBrave(firmName, firmCity) {
+    if (!BRAVE_API_KEY) {
+      console.log('[scrape] No BRAVE_API_KEY set');
+      return null;
+    }
     const query = `"${firmName}" ${firmCity} financial advisor`;
-    const ddgUrl = 'https://lite.duckduckgo.com/lite/?' + new URLSearchParams({ q: query });
+    const searchUrl = 'https://api.search.brave.com/res/v1/web/search?'
+      + new URLSearchParams({ q: query, count: 5, search_lang: 'en', country: 'us' });
     try {
-      const html = await fetchPage(ddgUrl, 6000);
-      if (!html) return null;
-
-      // Extract result URLs from DDG lite HTML
-      const linkMatches = [...html.matchAll(/href="(https?:\/\/[^"&]+)"/g)];
-      const candidates = linkMatches
-        .map(m => m[1])
-        .filter(u => {
-          try {
-            const host = new URL(u).hostname.toLowerCase();
-            return !isBlockedDomain(u)
-              && !host.includes('duckduckgo')
-              && !host.includes('duck.com');
-          } catch { return false; }
-        });
-
-      // Return the first non-blocked result
-      return candidates[0] || null;
-    } catch { return null; }
+      const r = await fetch(searchUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': BRAVE_API_KEY,
+        }
+      });
+      if (!r.ok) {
+        console.log('[scrape] Brave API error:', r.status, await r.text());
+        return null;
+      }
+      const data = await r.json();
+      const results = data?.web?.results || [];
+      // Return first URL that isn't a blocked domain
+      for (const result of results) {
+        const u = result.url;
+        if (u && !isBlockedDomain(u)) return u;
+      }
+      return null;
+    } catch(e) {
+      console.log('[scrape] Brave search error:', e.message);
+      return null;
+    }
   }
 
-  // Scrape a website for emails across multiple pages
-  async function scrapeWebsiteForEmails(websiteUrl) {
+  // Scrape a website across multiple pages for emails
+  async function scrapeForEmails(websiteUrl) {
     let origin;
     try { origin = new URL(websiteUrl).origin; } catch { return []; }
 
@@ -176,48 +188,42 @@ export default async function handler(req, res) {
 
   // --- Main logic ---
 
-  // Step 1: Determine the website to scrape
-  let websiteUrl = url && url.startsWith('http') ? url : null;
+  // Step 1: Resolve website URL
+  let websiteUrl = (url && url.startsWith('http') && !isBlockedDomain(url)) ? url : null;
   let websiteSource = 'csv';
 
-  // If no URL provided, or URL is a blocked/social domain, search DDG
-  if (!websiteUrl || isBlockedDomain(websiteUrl)) {
-    if (name && city) {
-      console.log('[scrape] No usable URL, searching DDG for:', name, city);
-      websiteUrl = await findWebsiteViaDDG(name, city);
-      websiteSource = 'ddg';
+  // If no usable URL, search Brave for the real website
+  if (!websiteUrl) {
+    if (name && city && BRAVE_API_KEY) {
+      console.log('[scrape] Searching Brave for:', name, city);
+      websiteUrl = await findWebsiteViaBrave(name, city);
+      websiteSource = websiteUrl ? 'brave' : 'none';
+    } else {
+      websiteSource = 'none';
     }
   }
 
   if (!websiteUrl) {
     return res.status(200).json({
       success: false, contacts: [], emails: [],
-      error: 'Could not find a website for this firm', crd,
-      websiteSource: 'none'
+      error: !BRAVE_API_KEY ? 'No BRAVE_API_KEY configured' : 'Could not find a website for this firm',
+      crd, websiteSource: 'none'
     });
   }
 
-  // Step 2: Scrape the website
-  const contacts = await scrapeWebsiteForEmails(websiteUrl);
+  // Step 2: Scrape the resolved website
+  let contacts = await scrapeForEmails(websiteUrl);
 
-  // Step 3: If CSV website had no emails, try DDG as fallback
-  if (contacts.length === 0 && websiteSource === 'csv' && name && city) {
-    console.log('[scrape] No emails on CSV website, trying DDG fallback');
-    const ddgUrl = await findWebsiteViaDDG(name, city);
-    if (ddgUrl && ddgUrl !== websiteUrl) {
-      const ddgContacts = await scrapeWebsiteForEmails(ddgUrl);
-      if (ddgContacts.length > 0) {
-        return res.status(200).json({
-          success: true,
-          contacts: ddgContacts,
-          emails: ddgContacts.map(c => c.email),
-          source: 'scrape',
-          websiteSource: 'ddg-fallback',
-          websiteFound: ddgUrl,
-          crd, url: ddgUrl,
-          scrapedAt: new Date().toISOString(),
-          count: ddgContacts.length
-        });
+  // Step 3: If CSV URL found no emails, try Brave as fallback
+  if (contacts.length === 0 && websiteSource === 'csv' && name && city && BRAVE_API_KEY) {
+    console.log('[scrape] No emails on CSV site, trying Brave fallback');
+    const braveUrl = await findWebsiteViaBrave(name, city);
+    if (braveUrl && braveUrl !== websiteUrl) {
+      const braveContacts = await scrapeForEmails(braveUrl);
+      if (braveContacts.length > 0) {
+        contacts = braveContacts;
+        websiteUrl = braveUrl;
+        websiteSource = 'brave-fallback';
       }
     }
   }
