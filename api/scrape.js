@@ -190,6 +190,7 @@ export default async function handler(req, res) {
   // --- Main logic ---
 
   // Step 1: Resolve website URL
+  if (url) url = url.replace(/^(https?):\/\//, '$1://').replace(/^(https?)\/\//, '$1://').replace(/^(?!https?:\/\/)/, 'https://');
   let websiteUrl = (url && url.startsWith('http') && !isBlockedDomain(url)) ? url : null;
   let websiteSource = 'csv';
 
