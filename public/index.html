@@ -219,7 +219,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   </div>
   <div class="hright">
     <span class="hdate" id="hdr-date"></span>
-    <button class="hbtn" onclick="exportProgress()" title="Export your progress to a backup file">&#8681; Export progress</button><button class="hbtn" id="batch-email-btn" onclick="batchScrapeEmails()" title="Find emails for all visible firms with a website URL" style="margin-left:6px">🔍 Find all emails</button>
+    <button class="hbtn" onclick="exportProgress()" title="Export your progress to a backup file">&#8681; Export progress</button>
     <label class="hbtn" title="Restore progress from a backup file">&#8679; Import progress<input type="file" accept=".json" style="display:none" onchange="importProgress(this)"></label>
     <span class="hbadge">Live SEC</span>
   </div>
@@ -843,7 +843,7 @@ function exportProgress() {
   };
 
   // Also export as human-readable CSV for backup
-  var csvLines = ['CRD,Firm Name,Status,Notes,Last Updated,Emails'];
+  var csvLines = ['CRD,Firm Name,Status,Notes,Last Updated'];
   var pr = loadP();
   keys.forEach(function(crd) {
     var entry = pr[crd] || {};
@@ -852,8 +852,7 @@ function exportProgress() {
     var status = entry.status || 'none';
     var notes = (entry.note || '').replace(/,/g, ';').replace(/\n/g, ' ');
     var updated = entry.updatedAt || '';
-    var emailData=loadEmails()[crd];var emailStr=emailData?(emailData.contacts||[]).map(function(c){return c.email||'';}).filter(Boolean).join(';'):'';
-    csvLines.push([crd, '"'+name+'"', status, '"'+notes+'"', updated, '"'+emailStr+'"'].join(','));
+    csvLines.push([crd, '"'+name+'"', status, '"'+notes+'"', updated].join(','));
   });
 
   // Download JSON
@@ -920,30 +919,17 @@ function importProgress(input) {
 }
 
 
-async function batchScrapeEmails() {
-      var emailBtns=Array.from(document.querySelectorAll('[id^="email-btn-"]'));
-        var visible=emailBtns.filter(function(b){return b.offsetParent!==null;});
-          if(!visible.length){alert('No visible firms with website URLs to scrape.');return;}
-            var total=visible.length,done=0;
-              var bBtn=document.getElementById('batch-email-btn');
-                if(bBtn){bBtn.disabled=true;bBtn.textContent='🔄 0/'+total;}
-                  for(var i=0;i<visible.length;i++){
-                      var crd=visible[i].id.replace('email-btn-','');
-                          var firm=FIRMS.find(function(f){return f.crd===crd;});
-                              if(firm&&firm.website){await findEmail(crd,firm.website);}
-                                  done++;
-                                      if(bBtn)bBtn.textContent='🔄 '+done+'/'+total;
-                                        }
-                                          if(bBtn){bBtn.disabled=false;bBtn.textContent='✅ Done ('+total+')';setTimeout(function(){bBtn.textContent='🔍 Find all emails';},3000);}
-                                          }
-                                          async function findEmail(crd, website) {
+async function findEmail(crd, website) {
   var btn = document.getElementById('email-btn-'+crd);
   var resultEl = document.getElementById('email-result-'+crd);
   if(!btn || !resultEl) return;
-  // Normalize malformed URLs from CSV (e.g. http// -> http://)
-  if (website && website.startsWith('https//')) website = website.replace('https//', 'https://');
-  else if (website && website.startsWith('http//')) website = website.replace('http//', 'http://');
-  else if (website && website.length > 0 && !website.startsWith('http')) website = 'https://' + website;
+    // Normalize malformed URLs before any use (e.g. http// -> http://)
+      if (website) {
+          website = website.trim();
+              // Fix missing colon: http// -> http:// or https// -> https://
+                  website = website.replace(/^(https?)\/\//, '$1://');
+                    if (!/^https?:/.test(website)) website = 'http://' + website;        
+                }
 
   // Check localStorage cache first
   var cached = loadEmails();
