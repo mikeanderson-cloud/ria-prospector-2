@@ -513,7 +513,10 @@ function parseCSV(text) {
     var aum = aumRaw && !isNaN(aumRaw) ? Math.round(parseFloat(aumRaw) / 1000000) : null;
 
     var website = iWebsite !== -1 ? (row[iWebsite] || '').trim() : '';
-    if (website && website.indexOf('http') !== 0 && website.length > 3) website = 'https://' + website;
+    if (website) {
+      website = website.replace(/^(https?)\/{2,}/i, '$1://');
+      if (!/^https?:\/\//i.test(website)) website = 'https://' + website;
+    }
     firms.push({ crd: crd, name: name, city: city, state: state,
                  zip: zip5, employees: emp, phone: phone, adv: adv, aum: aum, website: website });
   }
@@ -923,13 +926,6 @@ async function findEmail(crd, website) {
   var btn = document.getElementById('email-btn-'+crd);
   var resultEl = document.getElementById('email-result-'+crd);
   if(!btn || !resultEl) return;
-    // Normalize malformed URLs before any use (e.g. http// -> http://)
-      if (website) {
-          website = website.trim();
-              // Fix missing colon: http// -> http:// or https// -> https://
-                  website = website.replace(/^(https?)\/\//, '$1://');
-                    if (!/^https?:/.test(website)) website = 'http://' + website;        
-                }
 
   // Check localStorage cache first
   var cached = loadEmails();
