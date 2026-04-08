@@ -12,6 +12,8 @@ export default async function handler(req, res) {
 
   const BRAVE_API_KEY = process.env.BRAVE_API_KEY;
 
+  // Domains blocked when selecting a URL (Brave results, CSV validation)
+  // but NOT when following redirects from a firm's own site
   const BLOCKED_DOMAINS = [
     'linkedin.com','facebook.com','twitter.com','instagram.com','youtube.com',
     'google.com','bing.com','yahoo.com','duckduckgo.com',
@@ -23,16 +25,22 @@ export default async function handler(req, res) {
     'advisoryhq.com','wealthminder.com','napfa.org','cfp.net',
   ];
 
+  // Junk email domains — use exact domain / suffix matching (not substring)
   const JUNK_EMAIL_DOMAINS = [
-    'sentry.io','example.com','domain.com','wixpress','fontawesome',
-    'googleapis','gstatic','adobe','cloudflare','schema.org',
-    'noreply','no-reply','placeholder','w3.org','sampleemail',
-    'latofonts','typekit','linkedin','facebook','twitter','instagram',
-    'lingying','jubao','yourname','company.com','emailaddress',
+    'sentry.io','example.com','domain.com','wixpress.com','fontawesome.com',
+    'googleapis.com','gstatic.com','adobe.com','cloudflare.com','schema.org',
+    'w3.org','sampleemail.com','latofonts.com','typekit.com',
+    'linkedin.com','facebook.com','twitter.com','instagram.com',
+    'company.com','emailaddress.com','yourname.com',
+  ];
+  // Substrings that are always junk when found anywhere in an email address
+  const JUNK_EMAIL_SUBSTRINGS = [
+    'noreply','no-reply','placeholder','lingying','jubao',
   ];
 
   const EMAIL_REGEX = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
-  const NOT_NAME = /\b(email|contact|phone|fax|address|office|suite|floor|street|ave|blvd|at|or|and|for|the|our|your|please|send|reach|us|me|info|team|staff|support|services|wealth|capital|financial|investment|management|advisor|director|president|partner|associate|analyst|assistant|manager)\b/i;
+  const MAILTO_REGEX = /href\s*=\s*["']mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/gi;
+  const NOT_NAME = /\b(email|contact|phone|fax|address|office|suite|floor|street|ave|blvd|at|or|and|for|the|our|your|please|send|reach|us|me|info|team|staff|support|services)\b/i;
 
   function isBlockedDomain(urlStr) {
     try {
@@ -42,65 +50,113 @@ export default async function handler(req, res) {
   }
 
   function isJunkEmail(email) {
-    const d = email.split('@')[1]?.toLowerCase() || '';
-    return JUNK_EMAIL_DOMAINS.some(j => d.includes(j) || email.toLowerCase().includes(j))
-      || email.includes('..')
-      || email.length > 80
-      || !d.includes('.')
-          || /\.(png|jpg|jpeg|gif|svg|webp|ico|pdf|zip|css|js|woff|ttf|eot)$/i.test(d);
+    const lower = email.toLowerCase();
+    const d = lower.split('@')[1] || '';
+    if (!d.includes('.')) return true;
+    if (email.includes('..')) return true;
+    if (email.length > 80) return true;
+    if (/\.(png|jpg|jpeg|gif|svg|webp|ico|pdf|zip|css|js|woff|ttf|eot)$/i.test(d)) return true;
+    // Exact domain or suffix matching
+    if (JUNK_EMAIL_DOMAINS.some(j => d === j || d.endsWith('.' + j))) return true;
+    // Substring matching only for always-junk patterns
+    if (JUNK_EMAIL_SUBSTRINGS.some(j => lower.includes(j))) return true;
+    return false;
+  }
+
+  // Decode HTML entities and common anti-spam obfuscation
+  function decodeEntities(html) {
+    return html
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/\s*\(at\)\s*/gi, '@').replace(/\s*\[at\]\s*/gi, '@')
+      .replace(/\s*\(dot\)\s*/gi, '.').replace(/\s*\[dot\]\s*/gi, '.');
   }
 
   function extractEmailsWithNames(html) {
+    const results = [];
+    const seen = new Set();
+
+    function addEmail(email, nameGuess) {
+      if (isJunkEmail(email)) return;
+      if (seen.has(email.toLowerCase())) return;
+      seen.add(email.toLowerCase());
+      results.push({ email, name: nameGuess || null });
+    }
+
+    // Pass 1: Extract high-confidence mailto: links before any stripping
+    let mm;
+    MAILTO_REGEX.lastIndex = 0;
+    while ((mm = MAILTO_REGEX.exec(html)) !== null) {
+      addEmail(mm[1], null);
+    }
+
+    // Pass 2: Extract emails from script tags (JSON-LD, inline data, JS vars)
+    const scriptBlocks = html.match(/<script[^>]*>[\s\S]*?<\/script>/gi) || [];
+    for (const block of scriptBlocks) {
+      const content = decodeEntities(
+        block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '')
+      );
+      EMAIL_REGEX.lastIndex = 0;
+      let sm;
+      while ((sm = EMAIL_REGEX.exec(content)) !== null) {
+        addEmail(sm[0], null);
+      }
+    }
+
+    // Pass 3: Main extraction from visible HTML (strip scripts/styles first)
     html = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<!--[\s\S]*?-->/g, '');
 
-    const results = [];
-    const seen = new Set();
-    let m;
-    EMAIL_REGEX.lastIndex = 0;
+    // Decode entities and obfuscation patterns
+    html = decodeEntities(html);
 
+    EMAIL_REGEX.lastIndex = 0;
+    let m;
     while ((m = EMAIL_REGEX.exec(html)) !== null) {
       const email = m[0];
       if (isJunkEmail(email)) continue;
       if (seen.has(email.toLowerCase())) continue;
       seen.add(email.toLowerCase());
 
+      // Try to find a name near the email
       const ctxStart = Math.max(0, m.index - 400);
       const ctxEnd = Math.min(html.length, m.index + email.length + 400);
       const plain = html.slice(ctxStart, ctxEnd)
         .replace(/<[^>]+>/g, ' ')
-        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&[a-z]+;/gi, ' ')
+        .replace(/&[a-z]+;/gi, ' ')
         .replace(/\s+/g, ' ').trim();
 
-      let name = null;
+      let ename = null;
       const emailIdx = plain.indexOf(email);
       if (emailIdx !== -1) {
         const before = plain.slice(Math.max(0, emailIdx - 80), emailIdx);
         const bm = before.match(/([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\s*[:\-,]?\s*$/);
-        if (bm && !NOT_NAME.test(bm[1])) name = bm[1];
+        if (bm && !NOT_NAME.test(bm[1])) ename = bm[1];
 
-        if (!name) {
+        if (!ename) {
           const after = plain.slice(emailIdx + email.length, emailIdx + email.length + 80);
-          const am = after.match(/^[\s,\-–|]*([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})/);
-          if (am && !NOT_NAME.test(am[1])) name = am[1];
+          const am = after.match(/^[\s,\-\u2013|]*([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})/);
+          if (am && !NOT_NAME.test(am[1])) ename = am[1];
         }
       }
 
-      if (!name) {
+      if (!ename) {
         const parts = email.split('@')[0].split(/[._\-]/)
           .filter(p => p.length > 1 && /^[a-z]+$/i.test(p) && !NOT_NAME.test(p));
         if (parts.length >= 2)
-          name = parts.slice(0, 2).map(p => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+          ename = parts.slice(0, 2).map(p => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(' ');
       }
 
-      results.push({ email, name: name || null });
+      results.push({ email, name: ename || null });
     }
     return results;
   }
 
-  async function fetchPage(pageUrl, timeout = 8000) {
+  async function fetchPage(pageUrl, timeout = 12000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -115,7 +171,12 @@ export default async function handler(req, res) {
       });
       clearTimeout(timer);
       if (!r.ok) return null;
-      if (isBlockedDomain(r.url)) return null;
+      // Skip binary responses
+      const ct = r.headers.get('content-type') || '';
+      if (!ct.includes('text/') && !ct.includes('html') && !ct.includes('xml') && !ct.includes('json')) return null;
+      // NOTE: We no longer block after redirect — domain blocking applies to
+      // URL selection (Brave results, CSV validation), not to page fetching.
+      // A firm's own site legitimately redirects to Wix/Squarespace/etc.
       return await r.text();
     } catch { clearTimeout(timer); return null; }
   }
@@ -155,35 +216,64 @@ export default async function handler(req, res) {
     }
   }
 
-  // Scrape a website across multiple pages for emails
+  // Collect unique contacts from HTML, deduplicating by email
+  function collectContacts(html, allContacts, seenEmails) {
+    if (!html) return;
+    for (const c of extractEmailsWithNames(html)) {
+      if (!seenEmails.has(c.email.toLowerCase())) {
+        seenEmails.add(c.email.toLowerCase());
+        allContacts.push(c);
+      }
+    }
+  }
+
+  // Scrape a website across multiple pages for emails (parallel, tiered)
   async function scrapeForEmails(websiteUrl) {
     let origin;
     try { origin = new URL(websiteUrl).origin; } catch { return []; }
 
-    const pagesToTry = [
+    const allContacts = [];
+    const seenEmails = new Set();
+
+    // Tier 1: Most common contact/about/team pages (fetched in parallel)
+    const tier1 = [
       origin + '/contact',
       origin + '/contact-us',
       origin + '/about',
       origin + '/about-us',
+      origin + '/team',
+      origin + '/our-team',
+    ];
+
+    const tier1Results = await Promise.allSettled(tier1.map(u => fetchPage(u)));
+    for (const r of tier1Results) {
+      if (r.status === 'fulfilled' && r.value) {
+        collectContacts(r.value, allContacts, seenEmails);
+      }
+    }
+
+    if (allContacts.length >= 5) return allContacts;
+
+    // Tier 2: Additional pages + the original URL and origin (parallel)
+    const tier2 = [
+      origin + '/advisors',
+      origin + '/our-advisors',
+      origin + '/people',
+      origin + '/staff',
+      origin + '/professionals',
+      origin + '/leadership',
       websiteUrl,
       origin,
     ];
 
-    const allContacts = [];
-    const seenEmails = new Set();
-
-    for (const pageUrl of pagesToTry) {
-      const html = await fetchPage(pageUrl);
-      if (html) {
-        for (const c of extractEmailsWithNames(html)) {
-          if (!seenEmails.has(c.email.toLowerCase())) {
-            seenEmails.add(c.email.toLowerCase());
-            allContacts.push(c);
-          }
-        }
+    const tier2Results = await Promise.allSettled(tier2.map(u => fetchPage(u)));
+    for (const r of tier2Results) {
+      if (r.status === 'fulfilled' && r.value) {
+        collectContacts(r.value, allContacts, seenEmails);
         if (allContacts.length >= 5) break;
       }
     }
+
     return allContacts;
   }
 
