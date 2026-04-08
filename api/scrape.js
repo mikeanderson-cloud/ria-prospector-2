@@ -156,6 +156,7 @@ export default async function handler(req, res) {
     return results;
   }
 
+  // Returns { html, blocked } — blocked=true means Cloudflare/bot challenge detected
   async function fetchPage(pageUrl, timeout = 12000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -170,15 +171,15 @@ export default async function handler(req, res) {
         }
       });
       clearTimeout(timer);
-      if (!r.ok) return null;
+      if (!r.ok) return { html: null, blocked: r.status === 403 };
       // Skip binary responses
       const ct = r.headers.get('content-type') || '';
-      if (!ct.includes('text/') && !ct.includes('html') && !ct.includes('xml') && !ct.includes('json')) return null;
-      // NOTE: We no longer block after redirect — domain blocking applies to
-      // URL selection (Brave results, CSV validation), not to page fetching.
-      // A firm's own site legitimately redirects to Wix/Squarespace/etc.
-      return await r.text();
-    } catch { clearTimeout(timer); return null; }
+      if (!ct.includes('text/') && !ct.includes('html') && !ct.includes('xml') && !ct.includes('json')) return { html: null, blocked: false };
+      const html = await r.text();
+      // Detect Cloudflare challenge pages
+      const blocked = /Just a moment|cf-chl-|challenge-platform|Enable JavaScript and cookies/i.test(html.slice(0, 2000));
+      return { html: blocked ? null : html, blocked };
+    } catch { clearTimeout(timer); return { html: null, blocked: false }; }
   }
 
   // Search Brave for the firm's real website
@@ -228,12 +229,14 @@ export default async function handler(req, res) {
   }
 
   // Scrape a website across multiple pages for emails (parallel, tiered)
+  // Returns { contacts, botBlocked }
   async function scrapeForEmails(websiteUrl) {
     let origin;
-    try { origin = new URL(websiteUrl).origin; } catch { return []; }
+    try { origin = new URL(websiteUrl).origin; } catch { return { contacts: [], botBlocked: false }; }
 
     const allContacts = [];
     const seenEmails = new Set();
+    let botBlocked = false;
 
     // Tier 1: Most common contact/about/team pages (fetched in parallel)
     const tier1 = [
@@ -248,11 +251,12 @@ export default async function handler(req, res) {
     const tier1Results = await Promise.allSettled(tier1.map(u => fetchPage(u)));
     for (const r of tier1Results) {
       if (r.status === 'fulfilled' && r.value) {
-        collectContacts(r.value, allContacts, seenEmails);
+        if (r.value.blocked) botBlocked = true;
+        if (r.value.html) collectContacts(r.value.html, allContacts, seenEmails);
       }
     }
 
-    if (allContacts.length >= 5) return allContacts;
+    if (allContacts.length >= 5) return { contacts: allContacts, botBlocked };
 
     // Tier 2: Additional pages + the original URL and origin (parallel)
     const tier2 = [
@@ -269,12 +273,58 @@ export default async function handler(req, res) {
     const tier2Results = await Promise.allSettled(tier2.map(u => fetchPage(u)));
     for (const r of tier2Results) {
       if (r.status === 'fulfilled' && r.value) {
-        collectContacts(r.value, allContacts, seenEmails);
+        if (r.value.blocked) botBlocked = true;
+        if (r.value.html) collectContacts(r.value.html, allContacts, seenEmails);
         if (allContacts.length >= 5) break;
       }
     }
 
-    return allContacts;
+    return { contacts: allContacts, botBlocked };
+  }
+
+  // Search Brave for emails mentioned in search result snippets
+  // (useful when the site itself is bot-protected)
+  async function findEmailsViaBraveSnippets(firmName, firmCity) {
+    if (!BRAVE_API_KEY) return [];
+    const queries = [
+      `"${firmName}" email contact`,
+      `"${firmName}" ${firmCity} email`,
+    ];
+    const found = [];
+    const seen = new Set();
+    for (const query of queries) {
+      const searchUrl = 'https://api.search.brave.com/res/v1/web/search?'
+        + new URLSearchParams({ q: query, count: 10, search_lang: 'en', country: 'us' });
+      try {
+        const r = await fetch(searchUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': BRAVE_API_KEY,
+          }
+        });
+        if (!r.ok) continue;
+        const data = await r.json();
+        const results = data?.web?.results || [];
+        for (const result of results) {
+          // Search through title, description, and URL for email addresses
+          const text = [result.title, result.description, result.url].join(' ');
+          EMAIL_REGEX.lastIndex = 0;
+          let m;
+          while ((m = EMAIL_REGEX.exec(text)) !== null) {
+            const email = m[0];
+            if (!isJunkEmail(email) && !seen.has(email.toLowerCase())) {
+              seen.add(email.toLowerCase());
+              found.push({ email, name: null });
+            }
+          }
+        }
+        if (found.length > 0) break; // Got results from first query, skip second
+      } catch(e) {
+        console.log('[scrape] Brave snippet search error:', e.message);
+      }
+    }
+    return found;
   }
 
   // --- Main logic ---
@@ -304,19 +354,31 @@ export default async function handler(req, res) {
   }
 
   // Step 2: Scrape the resolved website
-  let contacts = await scrapeForEmails(websiteUrl);
+  let { contacts, botBlocked } = await scrapeForEmails(websiteUrl);
 
-  // Step 3: If CSV URL found no emails, try Brave as fallback
+  // Step 3: If CSV URL found no emails, try Brave website fallback
   if (contacts.length === 0 && websiteSource === 'csv' && name && city && BRAVE_API_KEY) {
     console.log('[scrape] No emails on CSV site, trying Brave fallback');
     const braveUrl = await findWebsiteViaBrave(name, city);
     if (braveUrl && braveUrl !== websiteUrl) {
-      const braveContacts = await scrapeForEmails(braveUrl);
-      if (braveContacts.length > 0) {
-        contacts = braveContacts;
+      const braveResult = await scrapeForEmails(braveUrl);
+      if (braveResult.contacts.length > 0) {
+        contacts = braveResult.contacts;
         websiteUrl = braveUrl;
         websiteSource = 'brave-fallback';
+        botBlocked = braveResult.botBlocked;
       }
+    }
+  }
+
+  // Step 4: If still no emails (e.g. bot-protected site), try extracting
+  // emails from Brave search result snippets as a last resort
+  if (contacts.length === 0 && name && BRAVE_API_KEY) {
+    console.log('[scrape] Trying Brave snippet extraction for:', name, botBlocked ? '(site was bot-protected)' : '');
+    const snippetContacts = await findEmailsViaBraveSnippets(name, city || '');
+    if (snippetContacts.length > 0) {
+      contacts = snippetContacts;
+      websiteSource = botBlocked ? 'brave-snippets-botblocked' : 'brave-snippets';
     }
   }
 
@@ -327,6 +389,7 @@ export default async function handler(req, res) {
     source: 'scrape',
     websiteSource,
     websiteFound: websiteUrl,
+    botBlocked,
     crd,
     url: websiteUrl,
     scrapedAt: new Date().toISOString(),

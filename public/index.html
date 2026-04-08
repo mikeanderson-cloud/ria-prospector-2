@@ -965,6 +965,8 @@ async function findEmail(crd, website) {
       btn.textContent = 'Find email'; btn.disabled = false;
       if(data.websiteSource === 'none') {
         resultEl.innerHTML = '<span style="color:var(--muted);font-size:12px">No website found for this firm.</span>';
+      } else if(data.botBlocked) {
+        resultEl.innerHTML = '<span style="color:var(--muted);font-size:12px">Website is bot-protected (Cloudflare) — could not scrape emails.</span>';
       }
     }
   } catch(e) {
@@ -1055,7 +1057,7 @@ function rescrapeEmail(crd) {
 }
 
 // Bump this version whenever scraper logic changes to auto-invalidate stale cache
-var SCRAPER_VERSION = 2;
+var SCRAPER_VERSION = 3;
 
 function loadEmails() {
   try {
